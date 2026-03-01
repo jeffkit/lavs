@@ -1,0 +1,279 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lavs.dev/schema/manifest/v1.0",
+  "title": "LAVS Manifest",
+  "description": "Local Agent View Service manifest file (lavs.json) - defines agent data interfaces and view configuration.",
+  "type": "object",
+  "required": ["lavs", "name", "version", "endpoints"],
+  "properties": {
+    "lavs": {
+      "type": "string",
+      "description": "Protocol version",
+      "enum": ["1.0"]
+    },
+    "name": {
+      "type": "string",
+      "description": "Service name (unique identifier)",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+    },
+    "version": {
+      "type": "string",
+      "description": "Service version (semver)",
+      "pattern": "^\\d+\\.\\d+\\.\\d+"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description"
+    },
+    "endpoints": {
+      "type": "array",
+      "description": "Exposed operations",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/Endpoint" }
+    },
+    "view": {
+      "$ref": "#/definitions/ViewConfig",
+      "description": "Optional UI component configuration"
+    },
+    "types": {
+      "type": "object",
+      "description": "Reusable type definitions (JSON Schema)",
+      "additionalProperties": { "type": "object" }
+    },
+    "permissions": {
+      "$ref": "#/definitions/Permissions",
+      "description": "Service-level security constraints"
+    }
+  },
+  "definitions": {
+    "Endpoint": {
+      "type": "object",
+      "required": ["id", "method", "handler"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique endpoint identifier",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+        },
+        "method": {
+          "type": "string",
+          "description": "Operation type",
+          "enum": ["query", "mutation", "subscription"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description"
+        },
+        "handler": {
+          "$ref": "#/definitions/Handler",
+          "description": "How to execute this endpoint"
+        },
+        "schema": {
+          "$ref": "#/definitions/Schema",
+          "description": "Input/output schema"
+        },
+        "permissions": {
+          "$ref": "#/definitions/Permissions",
+          "description": "Endpoint-specific permissions (overrides service-level)"
+        }
+      }
+    },
+    "Handler": {
+      "oneOf": [
+        { "$ref": "#/definitions/ScriptHandler" },
+        { "$ref": "#/definitions/FunctionHandler" },
+        { "$ref": "#/definitions/HTTPHandler" },
+        { "$ref": "#/definitions/MCPHandler" }
+      ]
+    },
+    "ScriptHandler": {
+      "type": "object",
+      "required": ["type", "command"],
+      "properties": {
+        "type": { "const": "script" },
+        "command": {
+          "type": "string",
+          "description": "Command to execute (e.g., 'node', 'python3')"
+        },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Static arguments"
+        },
+        "input": {
+          "type": "string",
+          "enum": ["args", "stdin", "env"],
+          "description": "How to pass input parameters to the script"
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Working directory (relative to agent dir)"
+        },
+        "timeout": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Max execution time in milliseconds"
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Environment variables"
+        }
+      }
+    },
+    "FunctionHandler": {
+      "type": "object",
+      "required": ["type", "module", "function"],
+      "properties": {
+        "type": { "const": "function" },
+        "module": {
+          "type": "string",
+          "description": "Path to JS/TS module"
+        },
+        "function": {
+          "type": "string",
+          "description": "Function name to call"
+        }
+      }
+    },
+    "HTTPHandler": {
+      "type": "object",
+      "required": ["type", "url", "method"],
+      "properties": {
+        "type": { "const": "http" },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "HTTP endpoint URL"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+          "description": "HTTP method"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "HTTP headers"
+        }
+      }
+    },
+    "MCPHandler": {
+      "type": "object",
+      "required": ["type", "server", "tool"],
+      "properties": {
+        "type": { "const": "mcp" },
+        "server": {
+          "type": "string",
+          "description": "MCP server name"
+        },
+        "tool": {
+          "type": "string",
+          "description": "MCP tool name"
+        }
+      }
+    },
+    "Schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "object",
+          "description": "JSON Schema for input parameters"
+        },
+        "output": {
+          "type": "object",
+          "description": "JSON Schema for output data"
+        }
+      }
+    },
+    "ViewConfig": {
+      "type": "object",
+      "required": ["component"],
+      "properties": {
+        "component": {
+          "$ref": "#/definitions/ComponentSource"
+        },
+        "fallback": {
+          "type": "string",
+          "enum": ["list", "table", "json"],
+          "description": "Fallback display mode when component fails"
+        },
+        "icon": {
+          "type": "string",
+          "description": "Icon identifier"
+        },
+        "theme": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Theme CSS variables"
+        }
+      }
+    },
+    "ComponentSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "url"],
+          "properties": {
+            "type": { "const": "cdn" },
+            "url": { "type": "string", "format": "uri" },
+            "exportName": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "package"],
+          "properties": {
+            "type": { "const": "npm" },
+            "package": { "type": "string" },
+            "version": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "path"],
+          "properties": {
+            "type": { "const": "local" },
+            "path": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "code"],
+          "properties": {
+            "type": { "const": "inline" },
+            "code": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "Permissions": {
+      "type": "object",
+      "description": "Security constraints. See spec for enforcement levels (ENFORCED vs ADVISORY).",
+      "properties": {
+        "fileAccess": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "[ADVISORY] Allowed file path patterns (glob). Use '!' prefix for deny."
+        },
+        "networkAccess": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "[ADVISORY] Network access control. false=no access, true=all, array=whitelist."
+        },
+        "maxExecutionTime": {
+          "type": "number",
+          "minimum": 0,
+          "description": "[ENFORCED] Max handler execution time in milliseconds."
+        },
+        "maxMemory": {
+          "type": "number",
+          "minimum": 0,
+          "description": "[ADVISORY] Max memory usage in bytes."
+        }
+      }
+    }
+  }
+}

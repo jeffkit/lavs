@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.tgz
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Lockfile is managed per workspace

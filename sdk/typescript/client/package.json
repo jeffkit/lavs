@@ -1,0 +1,43 @@
+{
+  "name": "lavs-client",
+  "version": "0.1.0",
+  "description": "LAVS (Local Agent View Service) client SDK for frontend applications",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "lavs",
+    "agent",
+    "view",
+    "service",
+    "client",
+    "frontend",
+    "sse"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeffkit/lavs.git",
+    "directory": "sdk/typescript/client"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.1.6"
+  }
+}

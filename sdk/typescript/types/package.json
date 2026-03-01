@@ -1,0 +1,42 @@
+{
+  "name": "lavs-types",
+  "version": "0.1.0",
+  "description": "LAVS (Local Agent View Service) protocol type definitions",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "lavs",
+    "agent",
+    "view",
+    "service",
+    "protocol",
+    "types",
+    "typescript"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeffkit/lavs.git",
+    "directory": "sdk/typescript/types"
+  },
+  "devDependencies": {
+    "typescript": "^5.1.6"
+  }
+}

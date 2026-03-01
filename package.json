@@ -1,0 +1,19 @@
+{
+  "name": "@lavs/monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LAVS - Local Agent View Service",
+  "scripts": {
+    "test": "cd sdk/typescript/runtime && pnpm test:run",
+    "build": "pnpm build:types && pnpm build:runtime && pnpm build:client",
+    "build:types": "cd sdk/typescript/types && pnpm build",
+    "build:runtime": "cd sdk/typescript/runtime && pnpm build",
+    "build:client": "cd sdk/typescript/client && pnpm build",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.8"
+  }
+}
