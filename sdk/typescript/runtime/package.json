@@ -19,6 +19,9 @@
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },
+  "bin": {
+    "lavs-runtime": "./dist/cli.js"
+  },
   "files": [
     "dist",
     "README.md"
@@ -30,7 +33,9 @@
     "service",
     "runtime",
     "manifest",
-    "validation"
+    "validation",
+    "mcp",
+    "model-context-protocol"
   ],
   "license": "MIT",
   "repository": {
@@ -39,6 +44,7 @@
     "directory": "sdk/typescript/runtime"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",
     "minimatch": "^9.0.5"

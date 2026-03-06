@@ -41,3 +41,7 @@ export { SubscriptionManager, subscriptionManager } from './subscription-manager
 export type { SubscriptionEvent, SSEResponse } from './subscription-manager';
 export { LAVSToolGenerator } from './tool-generator';
 export type { ClaudeTool, ToolExecutor, GeneratedTool } from './tool-generator';
+
+// MCP Server (standard @modelcontextprotocol/sdk integration)
+export { createLAVSMcpServer, connectStdio, getLAVSToolNames } from './mcp-server';
+export type { LAVSMcpServerOptions } from './mcp-server';
