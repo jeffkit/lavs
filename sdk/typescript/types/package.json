@@ -1,6 +1,6 @@
 {
   "name": "lavs-types",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "LAVS (Local Agent View Service) protocol type definitions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
