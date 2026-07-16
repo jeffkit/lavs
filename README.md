@@ -216,10 +216,10 @@ View components run in an iframe and communicate via `postMessage`:
 
 | Type | Description | Status |
 |------|-------------|--------|
-| `script` | Execute CLI command (node, python, etc.) | ✅ |
-| `function` | Call JS/TS function directly | ✅ |
-| `http` | Proxy to HTTP endpoint | Planned |
-| `mcp` | Bridge to MCP server tool | Planned |
+| `script` | Execute CLI command (node, python, etc.) | ✅ Implemented |
+| `function` | Call JS/TS function directly | ✅ Implemented |
+| `http` | Proxy to external HTTP endpoint | ✅ Implemented (TS runtime: `HttpExecutor`) |
+| `mcp` | Bridge to external MCP server tool | ✅ Implemented (TS runtime: `McpExecutor`; connection config via `mcp-config.json`) |
 
 ## Security Model
 
@@ -291,11 +291,15 @@ LAVS is currently integrated into [AgentStudio](../agentstudio/) via the `featur
 - [x] postMessage protocol documentation
 - [x] File watcher for cache invalidation
 - [x] Unit tests + integration tests
-- [ ] Extract runtime as `@lavs/runtime` npm package
-- [ ] Extract client as `@lavs/client` npm package
-- [ ] Implement `http` and `mcp` handler types
-- [ ] CLI tooling (`lavs init`, `lavs validate`)
-- [ ] Independent repository and npm publishing
+- [x] Extract runtime as `@lavs/runtime` npm package (this repo: `sdk/typescript/runtime`)
+- [x] Extract client as `@lavs/client` npm package (this repo: `sdk/typescript/client`)
+- [x] Python SDK — types (Pydantic) + runtime (loader/validator/permission-checker/rate-limiter/script-executor)
+- [x] Implement `http` handler (TS runtime: `HttpExecutor`)
+- [x] CLI tooling: `lavs-runtime serve` (MCP server) + `init` + `validate`
+- [x] Reverse MCP expose: `lavs-runtime serve` exposes LAVS endpoints as MCP tools
+- [ ] Implement `mcp` handler type (bridge to external MCP server tools)
+- [ ] Implement `http` handler in the Python runtime
+- [ ] Independent repository and npm/PyPI publishing
 
 ## License
 

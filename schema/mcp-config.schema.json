@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lavs.dev/schemas/mcp-config.schema.json",
+  "title": "LAVS MCP Server Config",
+  "description": "Connection configuration for external MCP servers referenced by `mcp` handlers in lavs.json. Colocated with lavs.json.",
+  "type": "object",
+  "required": ["mcpServers"],
+  "additionalProperties": false,
+  "properties": {
+    "mcpServers": {
+      "type": "object",
+      "description": "Map of server name -> connection config (referenced by handler.server)",
+      "additionalProperties": { "$ref": "#/definitions/McpServerConfig" }
+    }
+  },
+  "definitions": {
+    "McpServerConfig": {
+      "type": "object",
+      "required": ["transport"],
+      "properties": {
+        "transport": { "type": "string", "enum": ["stdio", "http"] },
+        "command": { "type": "string", "description": "stdio: executable to spawn" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "cwd": { "type": "string", "description": "stdio: working directory" },
+        "url": { "type": "string", "format": "uri", "description": "http: Streamable HTTP MCP endpoint" },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "timeout": { "type": "number", "minimum": 0, "description": "Max execution time (ms)" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "transport": { "const": "stdio" } } },
+          "then": { "required": ["command"] }
+        },
+        {
+          "if": { "properties": { "transport": { "const": "http" } } },
+          "then": { "required": ["url"] }
+        }
+      ]
+    }
+  }
+}

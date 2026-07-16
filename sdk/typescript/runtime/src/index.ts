@@ -34,6 +34,8 @@ export { LAVSValidator } from './validator';
 export type { ValidationResult, ValidationError } from './validator';
 export { ScriptExecutor } from './script-executor';
 export { FunctionExecutor } from './function-executor';
+export { HttpExecutor } from './http-executor';
+export { McpExecutor } from './mcp-executor';
 export { PermissionChecker } from './permission-checker';
 export { LAVSRateLimiter } from './rate-limiter';
 export type { RateLimitConfig, RateLimitResult } from './rate-limiter';

@@ -56,12 +56,40 @@ export interface HTTPHandler {
   url: string;
   method: string;
   headers?: Record<string, string>;
+  timeout?: number;
 }
 
 export interface MCPHandler {
   type: 'mcp';
   server: string;
   tool: string;
+}
+
+/**
+ * MCP server connection configuration (from mcp-config.json)
+ */
+export type McpTransport = 'stdio' | 'http';
+
+export interface McpStdioConfig {
+  transport: 'stdio';
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  timeout?: number;
+}
+
+export interface McpHttpConfig {
+  transport: 'http';
+  url: string;
+  headers?: Record<string, string>;
+  timeout?: number;
+}
+
+export type McpServerConfig = McpStdioConfig | McpHttpConfig;
+
+export interface McpConfigFile {
+  mcpServers: Record<string, McpServerConfig>;
 }
 
 /**

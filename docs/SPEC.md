@@ -944,6 +944,36 @@ if action == 'search':
 }
 ```
 
+The `lavs.json` only *references* an MCP server by name. The connection
+details live in a separate `mcp-config.json` colocated with `lavs.json`:
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "ghp_xxx" }
+    },
+    "weather": {
+      "transport": "http",
+      "url": "http://localhost:3000/mcp",
+      "headers": { "Authorization": "Bearer xxx" }
+    }
+  }
+}
+```
+
+Transport options:
+- `stdio`: spawn a local process (`command` + `args`, optional `env`/`cwd`).
+- `http`: connect to a Streamable HTTP MCP endpoint (`url`, optional `headers`).
+- Optional `timeout` (ms) caps the connect + call duration.
+
+See `schema/mcp-config.schema.json` for the full schema. The runtime reads
+`mcp-config.json` from the same directory as `lavs.json` and resolves
+`handler.server` against its `mcpServers` map.
+
 ---
 
 ## 9. Interoperability

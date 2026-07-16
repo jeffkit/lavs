@@ -11,7 +11,9 @@ import { ScriptExecutor } from './script-executor';
 import { FunctionExecutor } from './function-executor';
 import { LAVSValidator } from './validator';
 import { PermissionChecker } from './permission-checker';
-import { ScriptHandler, FunctionHandler, ExecutionContext } from './types';
+import { ScriptHandler, FunctionHandler, HTTPHandler, MCPHandler, ExecutionContext } from './types';
+import { HttpExecutor } from './http-executor';
+import { McpExecutor } from './mcp-executor';
 import path from 'path';
 
 /**
@@ -184,8 +186,28 @@ export class LAVSToolGenerator {
           );
           break;
         }
-        default:
-          throw new Error(`Handler type '${endpoint.handler.type}' is not yet supported in tool generation`);
+        case 'http': {
+          const httpExecutor = new HttpExecutor();
+          result = await httpExecutor.execute(
+            endpoint.handler as HTTPHandler,
+            params,
+            context
+          );
+          break;
+        }
+        case 'mcp': {
+          const mcpExecutor = new McpExecutor();
+          result = await mcpExecutor.execute(
+            endpoint.handler as MCPHandler,
+            params,
+            context
+          );
+          break;
+        }
+        default: {
+          const htype = (endpoint.handler as any).type ?? 'unknown';
+          throw new Error(`Handler type '${htype}' is not yet supported in tool generation`);
+        }
       }
 
       // 6. Validate output against schema (non-blocking: warn on mismatch, still return data)

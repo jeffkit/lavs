@@ -68,6 +68,7 @@ export interface HTTPHandler {
   url: string;                      // HTTP endpoint
   method: string;                   // HTTP method
   headers?: Record<string, string>; // HTTP headers
+  timeout?: number;                 // Max execution time (ms)
 }
 
 /**
@@ -75,8 +76,43 @@ export interface HTTPHandler {
  */
 export interface MCPHandler {
   type: 'mcp';
-  server: string;                   // MCP server name
+  server: string;                   // MCP server name (must exist in mcp-config.json)
   tool: string;                     // MCP tool name
+}
+
+/**
+ * MCP server connection configuration (from mcp-config.json)
+ *
+ * The `lavs.json` manifest only references a server by name; the actual
+ * connection details live in the optional `mcp-config.json` colocated with
+ * the manifest. This keeps secrets (tokens, commands) out of the manifest
+ * and lets multiple endpoints share one server connection definition.
+ */
+export type McpTransport = 'stdio' | 'http';
+
+export interface McpStdioConfig {
+  transport: 'stdio';
+  command: string;                  // Executable to spawn (e.g. "npx")
+  args?: string[];                  // CLI args passed to the server
+  env?: Record<string, string>;    // Extra env vars for the server process
+  cwd?: string;                    // Working directory for the server process
+  timeout?: number;                // Max execution time (ms)
+}
+
+export interface McpHttpConfig {
+  transport: 'http';
+  url: string;                     // Streamable HTTP MCP endpoint (e.g. http://host:port/mcp)
+  headers?: Record<string, string>; // HTTP headers (auth, etc.)
+  timeout?: number;                // Max execution time (ms)
+}
+
+export type McpServerConfig = McpStdioConfig | McpHttpConfig;
+
+/**
+ * Shape of mcp-config.json (optional, lives next to lavs.json)
+ */
+export interface McpConfigFile {
+  mcpServers: Record<string, McpServerConfig>;
 }
 
 /**

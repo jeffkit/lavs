@@ -2,11 +2,14 @@
  * Tests for LAVSToolGenerator
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { LAVSToolGenerator } from './tool-generator';
+
+// Minimal MCP stdio server used to exercise the `mcp` handler end-to-end.
+const MCP_FIXTURE = path.resolve(process.cwd(), 'src/__fixtures__/echo-mcp-server.mjs');
 
 describe('LAVSToolGenerator', () => {
   let generator: LAVSToolGenerator;
@@ -277,7 +280,51 @@ describe('LAVSToolGenerator', () => {
       }
     });
 
-    it('should throw for unsupported handler type', async () => {
+    it('should support mcp handler type (end-to-end via generator)', async () => {
+      await writeManifest({
+        lavs: '1.0',
+        name: 'mcp-service',
+        version: '1.0.0',
+        endpoints: [
+          {
+            id: 'fetch',
+            method: 'query',
+            handler: { type: 'mcp', server: 'echo', tool: 'echo' },
+          },
+        ],
+      });
+      // Colocate an mcp-config.json referencing the fixture server.
+      await fs.writeFile(
+        path.join(tmpDir, 'mcp-config.json'),
+        JSON.stringify({
+          mcpServers: {
+            echo: { transport: 'stdio', command: 'node', args: [MCP_FIXTURE] },
+          },
+        })
+      );
+
+      const tools = await generator.generateTools('agent-1', tmpDir);
+      expect(tools).toHaveLength(1);
+      const result = await tools[0].execute({ msg: 'hi' });
+      expect(result).toEqual({ echo: 'hi' });
+    });
+
+    it('should reject unknown handler type at manifest load', async () => {
+      await writeManifest({
+        lavs: '1.0',
+        name: 'bad',
+        version: '1.0.0',
+        endpoints: [
+          { id: 'x', method: 'query', handler: { type: 'graphql' } } as any,
+        ],
+      });
+
+      await expect(generator.generateTools('agent-1', tmpDir)).rejects.toThrow(
+        /Invalid handler type/
+      );
+    });
+
+    it('should support http handler type', async () => {
       await writeManifest({
         lavs: '1.0',
         name: 'http-service',
@@ -286,19 +333,31 @@ describe('LAVSToolGenerator', () => {
           {
             id: 'fetch',
             method: 'query',
-            handler: { type: 'http', url: 'https://example.com', method: 'GET' },
+            handler: { type: 'http', url: 'https://example.com/api', method: 'GET' },
           },
         ],
       });
 
-      try {
-        const tools = await generator.generateTools('agent-1', tmpDir);
-        // Only query/mutation are processed; http would be attempted
-        await tools[0].execute({});
-        expect.fail('Should have thrown');
-      } catch (err) {
-        expect((err as Error).message).toContain('not yet supported');
-      }
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({ items: [1, 2, 3] }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const tools = await generator.generateTools('agent-1', tmpDir);
+      expect(tools).toHaveLength(1);
+      expect(tools[0].tool.name).toBe('lavs_fetch');
+
+      const result = await tools[0].execute({});
+      expect(result).toEqual({ items: [1, 2, 3] });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://example.com/api',
+        expect.objectContaining({ method: 'GET' })
+      );
+
+      vi.unstubAllGlobals();
     });
   });
 

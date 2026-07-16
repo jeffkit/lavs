@@ -17,12 +17,24 @@ platform/lavs/
 │   └── PROTOCOL-ANALYSIS.md           # Gap analysis & improvement findings
 ├── sdk/
 │   ├── typescript/                     # TypeScript/Node.js SDK
-│   │   ├── types/src/index.ts          # Core type definitions
-│   │   ├── runtime/src/                # Reference runtime (to be extracted)
-│   │   └── client/src/                 # Client SDK (to be extracted)
-│   └── python/                         # Python SDK (planned)
+│   │   ├── types/src/index.ts          # Core type definitions (published: @lavs/types)
+│   │   ├── runtime/src/                # Server-side runtime (published: @lavs/runtime)
+│   │   │   ├── loader.ts                 # Manifest loader
+│   │   │   ├── validator.ts              # JSON Schema validation
+│   │   │   ├── permission-checker.ts    # Permission enforcement
+│   │   │   ├── script-executor.ts        # Script handler execution
+│   │   │   ├── function-executor.ts      # Function handler execution
+│   │   │   ├── http-executor.ts         # HTTP handler execution
+│   │   │   ├── rate-limiter.ts           # Per-endpoint rate limiting
+│   │   │   ├── subscription-manager.ts    # SSE subscription management
+│   │   │   ├── tool-generator.ts         # Generate AI tools from manifest
+│   │   │   ├── mcp-server.ts             # Expose LAVS as MCP tools (stdio)
+│   │   │   ├── cli.ts                    # `lavs-runtime` CLI (serve/init/validate)
+│   │   │   └── types.ts                  # Core type definitions
+│   │   └── client/src/                 # Client SDK (published: @lavs/client)
+│   └── python/                         # Python SDK (active)
 │       ├── lavs_types/                 # Pydantic models
-│       ├── lavs_runtime/               # Runtime
+│       ├── lavs_runtime/               # Runtime (loader/validator/permission-checker/rate-limiter/script-executor)
 │       └── lavs_client/                # Client SDK
 ├── schema/
 │   └── lavs-manifest.schema.json       # JSON Schema for manifest validation
@@ -35,25 +47,32 @@ The `sdk/` directory is organized by language, each providing types, runtime, an
 
 ## Reference Implementation
 
-The working implementation lives in the AgentStudio LAVS worktree:
+The **protocol specification and SDKs (TypeScript + Python) live in THIS repository** under `sdk/`. The runtime modules below are the canonical reference implementations:
 
-- **Backend runtime**: `agentstudio/.worktrees/lavs/backend/src/lavs/`
+- **TypeScript runtime** (`sdk/typescript/runtime/src/` → published as `@lavs/runtime`):
   - `loader.ts` — Manifest loader
   - `validator.ts` — JSON Schema validation
   - `permission-checker.ts` — Permission enforcement
   - `script-executor.ts` — Script handler execution
   - `function-executor.ts` — Function handler execution
+  - `http-executor.ts` — HTTP handler execution
   - `rate-limiter.ts` — Per-endpoint rate limiting
   - `subscription-manager.ts` — SSE subscription management
   - `tool-generator.ts` — Generate AI tools from manifest
-  - `mcp-bridge.ts` — Expose LAVS as MCP tools
+  - `mcp-server.ts` — Expose LAVS endpoints as MCP tools (stdio transport)
+  - `cli.ts` — `lavs-runtime` CLI (`serve` / `init` / `validate`)
   - `types.ts` — Core type definitions
 
-- **Frontend client**: `agentstudio/.worktrees/lavs/frontend/src/lavs/`
-  - `client.ts` — LAVSClient (call, subscribe, getManifest)
+- **TypeScript client** (`sdk/typescript/client/src/` → published as `@lavs/client`):
+  - `client.ts` — LAVSClient (`call`, `subscribe`, `getManifest`)
   - `types.ts` — Frontend type re-exports
 
-- **Routes**: `agentstudio/.worktrees/lavs/backend/src/routes/lavs.ts`
+- **Python SDK** (`sdk/python/`):
+  - `lavs_types/` — Pydantic models
+  - `lavs_runtime/` — loader / validator / permission-checker / rate-limiter / script-executor
+  - `lavs_client/` — Client SDK
+
+The **integration host** is AgentStudio (`feature/lavs-poc` branch, `agentstudio/.worktrees/lavs/`), where the HTTP transport, REST/SSE routes (`backend/src/routes/lavs.ts`), and the frontend view bridge are wired in. Local `lavs.json` manifests are loaded and executed by the runtime above.
 
 ## Key Design Decisions
 
