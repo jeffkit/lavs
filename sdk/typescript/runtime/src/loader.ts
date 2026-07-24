@@ -80,6 +80,17 @@ export class ManifestLoader {
       );
     }
 
+    // contentType is optional (v1.1); when present it must be a valid
+    // content-type identifier. Defaults to `name` when absent.
+    if (manifest.contentType !== undefined) {
+      if (typeof manifest.contentType !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_./-]*$/.test(manifest.contentType)) {
+        throw new LAVSError(
+          LAVSErrorCode.InvalidRequest,
+          `Invalid contentType: '${manifest.contentType}' (must match ^[a-zA-Z][a-zA-Z0-9_./-]*$)`
+        );
+      }
+    }
+
     if (!manifest.version) {
       throw new LAVSError(
         LAVSErrorCode.InvalidRequest,

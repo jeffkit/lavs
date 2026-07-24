@@ -1,9 +1,16 @@
 # LAVS — Local Agent View Service
 
-**Protocol Version**: 1.0  
+**Protocol Version**: 1.1 (View Dispatch Protocol; v1.0 pinned mode unchanged)
 **Status**: Active Development (pre-release)
 
 LAVS is a protocol that bridges **AI Agents** and **Visual UIs**. It enables local AI agents to expose structured data interfaces that can be rendered as interactive visual components alongside conversational chat.
+
+> **v1.1 repositioning**: a LAVS manifest binds to a **content-type** (a type of
+> structured data), not to an agent. A manifest is a **view bundle** — portable
+> across agents/scenarios. Hosts run in one of two first-class modes:
+> **pinned** (one bundle = the v1.0 "agent's face") or **dispatch** (many bundles,
+> rendered per artifact by content-type, for general chat agents). See
+> `docs/SPEC.md` §11 and `docs/DISPATCH-PROTOCOL.md`.
 
 ## What Problem Does LAVS Solve?
 
@@ -285,6 +292,12 @@ LAVS is currently integrated into [AgentStudio](../agentstudio/) via the `featur
 ## Roadmap
 
 - [x] Protocol spec v1.0
+- [x] Protocol spec v1.1 — View Dispatch Protocol (content-type abstraction,
+      pinned/dispatch host modes, artifact envelope, view registry, per-scope
+      data isolation, normative fallback rendering). See `docs/SPEC.md` §11 and
+      `docs/DISPATCH-PROTOCOL.md`.
+- [x] Manifest `contentType` field (optional; defaults to `name`) — schema,
+      TS + Python types, loader validation.
 - [x] Security hardening (CSP nonce, postMessage origin, publish auth)
 - [x] Spec alignment (SSE subscriptions, unified error format)
 - [x] JSON Schema for manifest validation

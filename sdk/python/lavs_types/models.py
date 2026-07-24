@@ -197,7 +197,15 @@ class LAVSManifest(BaseModel):
     """LAVS manifest - defines agent's data interface and view configuration."""
 
     lavs: str = Field(..., description="Protocol version (e.g., '1.0')")
-    name: str = Field(..., description="Service name (unique identifier)")
+    name: str = Field(..., description="Service / bundle id (tool naming, dir naming)")
+    content_type: str | None = Field(
+        default=None,
+        alias="contentType",
+        description=(
+            "Content-type identifier a host dispatches on (v1.1). Optional; "
+            "defaults to `name`. Recommended namespaced form, e.g. 'lavs/todo-list'."
+        ),
+    )
     version: str = Field(..., description="Service version (semver)")
     description: str | None = Field(default=None, description="Human-readable description")
     endpoints: list[Endpoint] = Field(..., description="Exposed operations")
@@ -208,6 +216,8 @@ class LAVSManifest(BaseModel):
     permissions: Permissions | None = Field(
         default=None, description="Service-level security constraints"
     )
+
+    model_config = {"populate_by_name": True}
 
 
 # --- Execution context ---

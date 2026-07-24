@@ -101,6 +101,36 @@ describe('ManifestLoader', () => {
       expect(result.permissions?.fileAccess).toEqual(['./data/**']);
       expect(result.endpoints[0].schema?.input).toBeDefined();
     });
+
+    it('should accept an optional contentType (v1.1)', async () => {
+      const manifestPath = await writeManifest({
+        lavs: '1.0',
+        name: 'todo-manager',
+        contentType: 'lavs/todo-list',
+        version: '1.0.0',
+        endpoints: [
+          { id: 'list', method: 'query', handler: { type: 'script', command: 'echo', args: ['[]'] } },
+        ],
+      });
+
+      const result = await loader.load(manifestPath);
+      expect(result.contentType).toBe('lavs/todo-list');
+    });
+
+    it('should default contentType to name when absent (behavioral, not set by loader)', async () => {
+      const manifestPath = await writeManifest({
+        lavs: '1.0',
+        name: 'todo-manager',
+        version: '1.0.0',
+        endpoints: [
+          { id: 'list', method: 'query', handler: { type: 'script', command: 'echo', args: ['[]'] } },
+        ],
+      });
+
+      const result = await loader.load(manifestPath);
+      expect(result.contentType).toBeUndefined();
+      // dispatch layer treats undefined contentType as `name`
+    });
   });
 
   // ─── Path resolution ─────────────────────────────────────
@@ -244,6 +274,27 @@ describe('ManifestLoader', () => {
       } catch (err) {
         expect(err).toBeInstanceOf(LAVSError);
         expect((err as LAVSError).message).toContain('version');
+      }
+    });
+
+    it('should throw when contentType has an invalid format', async () => {
+      const manifestPath = await writeManifest({
+        lavs: '1.0',
+        name: 'bad-ct',
+        contentType: 'has space',
+        version: '1.0.0',
+        endpoints: [
+          { id: 'list', method: 'query', handler: { type: 'script', command: 'echo', args: ['[]'] } },
+        ],
+      });
+
+      try {
+        await loader.load(manifestPath);
+        expect.fail('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(LAVSError);
+        expect((err as LAVSError).code).toBe(LAVSErrorCode.InvalidRequest);
+        expect((err as LAVSError).message).toContain('contentType');
       }
     });
 

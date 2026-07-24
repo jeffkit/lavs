@@ -8,10 +8,14 @@ LAVS (Local Agent View Service) is a standard protocol that enables local AI age
 
 ## Status of This Document
 
-This document is a draft specification for LAVS version 1.0. It is subject to change based on community feedback and implementation experience.
+This document is a draft specification for LAVS. Version 1.1 adds the
+**View Dispatch Protocol** (multiple views per conversation, dispatched by
+content-type) as a normative, backward-compatible extension. v1.0 behavior is
+preserved as the "pinned" host mode. It is subject to change based on community
+feedback and implementation experience.
 
-**Version:** 1.0.0-draft
-**Date:** 2025-01-15
+**Version:** 1.1.0-draft
+**Date:** 2026-07-16
 **Authors:** AgentStudio Team
 **License:** Apache 2.0
 
@@ -27,6 +31,7 @@ This document is a draft specification for LAVS version 1.0. It is subject to ch
 8. [Examples](#8-examples)
 9. [Interoperability](#9-interoperability)
 10. [Appendix](#10-appendix)
+11. [View Dispatch Protocol (v1.1)](#11-view-dispatch-protocol-v11)
 
 ---
 
@@ -51,6 +56,24 @@ However, none provide a standard way for local agents to:
 3. Maintain synchronized state between AI and UI
 
 LAVS addresses this gap.
+
+#### 1.1.1 Primary abstraction (v1.1)
+
+A LAVS manifest binds to a **content-type** (a type of structured data), not
+to an agent. A manifest is a **view bundle**: a content-type identifier + a
+renderer (view component) + the data operations (endpoints) for that type's
+data + permissions. A view bundle is portable across agents and scenarios.
+
+A host uses the registry in one of two first-class **host modes**:
+
+- **pinned** — load exactly one bundle; the agent operates within one
+  content-type. Equivalent to v1.0 behavior. UX = the agent's "face".
+- **dispatch** — load a registry of bundles; the agent emits typed artifacts;
+  the host renders the matching view for each. Multiple views per conversation.
+
+The scenario/function-bound agent (e.g. an enterprise agent per职能) is the
+pinned mode; the general chat agent (Claude Desktop, Cursor, workbuddy, …) is
+the dispatch mode. Both are first-class. See §11 for the dispatch protocol.
 
 ### 1.2 Design Goals
 
@@ -80,6 +103,17 @@ LAVS addresses this gap.
 - **View Component**: Frontend UI component that consumes the service
 - **Runtime**: Software that executes LAVS services
 - **Client**: Software that calls LAVS endpoints (frontend or agent)
+- **Content-Type** (v1.1): The identifier a host dispatches on. Carried by a
+  manifest's `contentType` (defaults to `name`).
+- **View Bundle** (v1.1): A manifest interpreted as a content-type + renderer +
+  data operations + permissions. The portable unit across agents/scenarios.
+- **Artifact** (v1.1): A piece of structured data the agent produces that the
+  host renders with a view bundle. Carried in an artifact envelope (§11.2).
+- **View Registry** (v1.1): The host's map of `content-type → view bundle`.
+- **Host Mode** (v1.1): How a host uses the registry — `pinned` (one bundle)
+  or `dispatch` (many bundles, dispatched per artifact).
+- **Data Scope** (v1.1): The isolated data directory a bundle's endpoints
+  operate on, keyed by `(conversationId, contentType)` in dispatch mode.
 
 ---
 
@@ -160,7 +194,8 @@ A LAVS manifest is a JSON file named `lavs.json` with the following structure:
 ```typescript
 interface LAVSManifest {
   lavs: string;              // Protocol version (e.g., "1.0")
-  name: string;              // Service name (unique identifier)
+  name: string;              // Service / bundle id (tool naming, dir naming)
+  contentType?: string;      // Content-type a host dispatches on (v1.1); defaults to `name`
   version: string;           // Service version (semver)
   description?: string;      // Human-readable description
 
@@ -170,6 +205,11 @@ interface LAVSManifest {
   permissions?: Permissions; // Security constraints
 }
 ```
+
+`contentType` (v1.1) is optional. When absent, it defaults to `name`. A
+recommended namespaced form (`lavs/todo-list`, `dev.acme.budget`) avoids
+collisions across publishers. Pattern: `^[a-zA-Z][a-zA-Z0-9_./-]*$`. A host
+indexes its view registry by `contentType ?? name`.
 
 ### 4.2 Endpoint Definition
 
@@ -622,6 +662,13 @@ Content-Security-Policy:
 
 The runtime generates a cryptographic nonce per request and injects it into the CSP header and any LAVS-injected `<script>` tags. This prevents execution of arbitrary inline scripts while allowing the LAVS config initialization script.
 
+### 6.6 Dispatch Mode (v1.1)
+
+When a host runs in dispatch mode (§11.4) and loads multiple bundles, the
+attack surface multiplies. See §11.8 for dispatch-specific security
+requirements: OS-level sandboxing for untrusted bundles, per-scope file-access
+enforcement at the executor, and scope-keyed SSE fan-out.
+
 ---
 
 ## 7. View Component Interface
@@ -790,11 +837,17 @@ Container notifies the view when the AI agent executes a LAVS tool:
   action: {
     type: 'tool_executed',
     tool: string,      // Tool name (e.g., 'lavs_addTodo')
+    contentType: string, // (v1.1) content-type of the bundle whose tool ran
     timestamp: number, // When the tool was executed
     result?: any       // Tool execution result (for optimistic updates)
   }
 }
 ```
+
+`contentType` (v1.1) lets a container that has multiple views mounted route
+the notification to the matching iframe instead of broadcasting to all.
+`result` (recommended) lets the view optimistically update without refetching
+(closes the "no tool result payload" gap).
 
 The view's `onAgentAction` handler can use this to:
 - Refresh data from the endpoint
@@ -1058,6 +1111,157 @@ Possible future additions:
 
 ---
 
+## 11. View Dispatch Protocol (v1.1)
+
+This section is normative in v1.1. It specifies how a host renders the right
+view bundle for a given piece of structured data inside a single conversation
+that may span many content-types. v1.0 behavior is the `pinned` host mode
+(§11.4) and is unchanged.
+
+### 11.1 Dispatch triggers
+
+A host renders a view in two situations. Both resolve to the same view bundle;
+they differ in how the content-type is discovered.
+
+1. **Tool-result dispatch.** The agent calls a LAVS endpoint tool
+   (`lavs_<endpoint>`). The host knows which bundle the tool belongs to (by the
+   tool's owning manifest). It renders that bundle's view with the tool result.
+   No envelope is needed — the content-type is implied by the tool.
+
+2. **Artifact dispatch.** The agent emits a structured artifact in chat (not via
+   a LAVS op). The host reads the artifact's `contentType`, looks up the
+   registry, and renders the matching view. Requires the envelope (§11.2).
+
+### 11.2 Artifact envelope
+
+A typed artifact the agent/host exchange. Minimal, JSON-RPC-friendly:
+
+```typescript
+interface LAVSArtifact {
+  lavs: '1.0';
+  contentType: string;        // matches a bundle's contentType (or name)
+  title?: string;              // human label for the view tab/panel
+  data?: any;                  // initial payload for one-shot rendering
+  init?: {                     // optional: endpoint call to bootstrap live data
+    endpoint: string;          //   e.g. "listTodos"
+    input?: any;
+  };
+  view?: {                     // optional per-artifact overrides
+    fallback?: 'list' | 'table' | 'json';
+    theme?: Record<string, string>;
+  };
+}
+```
+
+- `data` is for one-shot rendering (artifact-as-preview).
+- `init` is for interactive bundles: the view mounts and calls `init.endpoint`
+  to load live data, then subscribes for updates. Use one or the other.
+- The envelope carries **no** `instanceId` in v1.1 (see §11.6).
+
+### 11.3 View registry
+
+The host discovers bundles and builds `content-type → bundle`.
+
+**Local registry** (v1.1): a directory of bundle folders, each with a
+`lavs.json` (+ view component + scripts):
+
+```
+<registry-dir>/
+├── todo-list/
+│   ├── lavs.json            # contentType: "lavs/todo-list"
+│   ├── view/index.html
+│   └── scripts/
+├── daily-note/
+│   ├── lavs.json            # contentType: "lavs/daily-note"
+│   └── view/index.html
+└── budget/
+    └── lavs.json
+```
+
+- Pinned mode: registry contains one bundle (or the host is pointed at one
+  `lavs.json` directly).
+- Dispatch mode: host loads every `lavs.json`, indexes by `contentType ?? name`.
+- Duplicate content-types across bundles are a load-time error.
+- Remote registry / discovery is out of scope for v1.1 (future extension).
+
+### 11.4 Host modes
+
+- **pinned** — load exactly one bundle; the agent operates within one
+  content-type. Equivalent to v1.0. `contentType` is declared but unused for
+  dispatch. Data scope = `<agentDir>/data`.
+- **dispatch** — load a registry; render the matching view per artifact; many
+  views per conversation. Data scope = per `(conversationId, contentType)`
+  (§11.5).
+
+### 11.5 Dispatch algorithm and data scope
+
+```
+on typed artifact A (or tool result from bundle B):
+  ct = A.contentType          // or B's contentType for tool-result dispatch
+  bundle = registry[ct]
+  if !bundle:
+      render fallback (list|table|json) or skip         // §11.7
+      return
+  scope = dataScope(conversationId, ct)                  // §11.5
+  iframe = mount bundle.view.component in sandboxed iframe
+  inject LAVSClient bound to (bundle, scope)             // routes lavs-call
+  if A.init: view calls A.init.endpoint to bootstrap
+  else if A.data: view renders A.data directly
+  // SSE subscriptions from bundle endpoints forward into the iframe
+```
+
+- Pinned mode: `scope = <agentDir>/data` (v1.0 behavior, unchanged).
+- Dispatch mode: `scope = <registryDir>/<bundleDir>/data/<conversationId>/`.
+  Each `(conversation, contentType)` pair gets an isolated directory.
+  `permissions.fileAccess` globs resolve against `scope`.
+- The container routes every `lavs-call` from that iframe to the **bound
+  bundle's** endpoints, scoped to `scope`. `lavs-agent-action` notifications
+  are routed into the iframe only when the action's `contentType` matches the
+  iframe's bound bundle (§7.4.5).
+
+### 11.6 Instance scoping (deferred)
+
+v1.1 keys data by `(conversationId, contentType)` — one data store per
+content-type per conversation. Multiple artifacts of the *same* content-type in
+one conversation share that store. Multiple *instances* of the same
+content-type (two independent todo lists in one thread) is deferred; the
+envelope reserves no `instanceId` field. If needed later it is added as
+optional and endpoints opt in to receiving it.
+
+### 11.7 Fallback rendering (normative in v1.1)
+
+`view.fallback` (`list` | `table` | `json`) is declared in the manifest. In
+v1.1 it is **load-bearing**: when no bundle matches a content-type, or a
+bundle's view component fails to load, the host MUST fall back.
+
+- No bundle for `contentType` → render `json` fallback of the artifact data
+  with a "no view installed" affordance.
+- Bundle exists but component fails → use the bundle's declared `fallback`
+  (default `table`) over the last known data.
+
+### 11.8 Security considerations for dispatch mode
+
+Dispatch multiplies the attack surface: a host loads many bundles and renders
+many views in one conversation.
+
+1. **ADVISORY permissions become more dangerous.** With many bundles mounted,
+   a single malicious bundle can read across scopes if no sandbox backs the
+   permission model. Dispatch mode SHOULD require (or strongly recommend)
+   OS-level sandboxing (Docker / nsjail / platform sandbox) before loading
+   untrusted bundles. The registry loader SHOULD refuse bundles whose
+   `fileAccess` globs escape their own scope.
+2. **Per-scope isolation MUST be enforced at the executor.** Script/http
+   executors MUST resolve `permissions.fileAccess` against the artifact's scope
+   and reject out-of-scope access at dispatch time (not only path-traversal on
+   `cwd`/`command` as in v1.0).
+3. **SSE fan-out MUST be scoped.** Subscriptions are keyed by scope so that
+   views in different conversations do not receive each other's events.
+
+These do not change v1.0 pinned-mode behavior; they are implementation
+prerequisites for untrusted-bundle dispatch.
+
+---
+
 ## References
 
 - JSON-RPC 2.0: https://www.jsonrpc.org/specification
@@ -1076,6 +1280,18 @@ Copyright 2025 AgentStudio Team
 ---
 
 ## Changelog
+
+### v1.1.0-draft (2026-07-16)
+- **View Dispatch Protocol** (§11): multiple views per conversation, dispatched
+  by content-type. Backward-compatible with v1.0.
+- Manifest gains optional `contentType` (defaults to `name`).
+- Two first-class host modes: `pinned` (v1.0 behavior) and `dispatch`.
+- Artifact envelope (§11.2) for typed artifacts.
+- View registry + content-type dispatch (§11.3, §11.5).
+- Per-`(conversation, contentType)` data scope in dispatch mode (§11.5).
+- `lavs-agent-action` gains `contentType` and recommends `result`.
+- Fallback rendering (`list`/`table`/`json`) made normative (§11.7).
+- Dispatch-mode security considerations (§11.8).
 
 ### v1.0.0-draft (2025-01-15)
 - Initial draft specification

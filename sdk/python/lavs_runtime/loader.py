@@ -77,6 +77,21 @@ class ManifestLoader:
         if not manifest.get("name"):
             raise LAVSError(LAVSErrorCode.InvalidRequest, "Missing required field: name")
 
+        # contentType is optional (v1.1); when present it must be a valid
+        # content-type identifier. Defaults to `name` when absent.
+        content_type = manifest.get("contentType")
+        if content_type is not None:
+            import re
+
+            if not isinstance(content_type, str) or not re.match(
+                r"^[a-zA-Z][a-zA-Z0-9_./-]*$", content_type
+            ):
+                raise LAVSError(
+                    LAVSErrorCode.InvalidRequest,
+                    f"Invalid contentType: '{content_type}' "
+                    "(must match ^[a-zA-Z][a-zA-Z0-9_./-]*$)",
+                )
+
         if not manifest.get("version"):
             raise LAVSError(
                 LAVSErrorCode.InvalidRequest, "Missing required field: version"

@@ -10,6 +10,7 @@
 export interface LAVSManifest {
   lavs: string;
   name: string;
+  contentType?: string;            // Content-type a host dispatches on (v1.1); defaults to `name`
   version: string;
   description?: string;
   endpoints: Endpoint[];

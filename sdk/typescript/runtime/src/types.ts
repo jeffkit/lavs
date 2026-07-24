@@ -10,7 +10,8 @@
  */
 export interface LAVSManifest {
   lavs: string;                     // Protocol version (e.g., "1.0")
-  name: string;                     // Service name
+  name: string;                     // Service / bundle id (tool naming, dir naming)
+  contentType?: string;            // Content-type a host dispatches on (v1.1); defaults to `name`
   version: string;                  // Service version (semver)
   description?: string;             // Human-readable description
 

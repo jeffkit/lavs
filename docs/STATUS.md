@@ -84,6 +84,28 @@ MCP-compatible client (Claude Code, Cursor, etc.) can drive a LAVS agent.
 3. **No independent publish yet.** Packages are structured for publish but not
    yet on npm/PyPI; local use is via the pnpm workspace (`pnpm install`).
 
+## Recent changes (2026-07-16 — v1.1 View Dispatch Protocol)
+
+- **Repositioning**: the protocol's primary abstraction is now a
+  **content-type** (a type of structured data), not an agent. A manifest is a
+  **view bundle** — portable across agents/scenarios. Two first-class host
+  modes: `pinned` (v1.0 behavior, one bundle) and `dispatch` (many bundles,
+  rendered per artifact by content-type). Design draft: `docs/DISPATCH-PROTOCOL.md`.
+- **SPEC.md** bumped to 1.1.0-draft: added §11 View Dispatch Protocol
+  (normative), `contentType` manifest field, artifact envelope, view registry,
+  per-`(conversation, contentType)` data scope, normative fallback rendering,
+  dispatch-mode security (§11.8), `lavs-agent-action` gains `contentType` +
+  recommends `result`.
+- **Schema/types**: added optional `contentType` to `schema/lavs-manifest.schema.json`,
+  TS `@lavs/types` + runtime + client types, and Python `lavs_types` (Pydantic,
+  alias `contentType`). Loaders (TS + Python) validate the `contentType` pattern
+  when present. Tests added (TS loader +3, Python loader +2). Full suites green
+  (TS 158, Python 38).
+- **Not yet implemented**: the dispatch algorithm, view registry loader, and
+  per-scope data isolation are spec-only in v1.1; the runtime still behaves as
+  v1.0 pinned mode. Reference dispatch implementation is the next milestone
+  (proposed: an AgentStudio dispatch-mode branch).
+
 ## Recent changes (2026-07-15 audit)
 
 - Added `HttpExecutor` (`sdk/typescript/runtime/src/http-executor.ts`) and wired

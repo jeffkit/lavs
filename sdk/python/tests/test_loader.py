@@ -146,3 +146,51 @@ def test_load_duplicate_endpoint_ids() -> None:
         assert "Duplicate" in exc_info.value.message
     finally:
         Path(path).unlink(missing_ok=True)
+
+
+def test_load_accepts_optional_content_type() -> None:
+    """v1.1: an optional contentType is accepted and round-trips."""
+    content = json.dumps({
+        "lavs": "1.0",
+        "name": "todo-manager",
+        "contentType": "lavs/todo-list",
+        "version": "1.0.0",
+        "endpoints": [
+            {"id": "list", "method": "query", "handler": {"type": "script", "command": "echo"}},
+        ],
+    })
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        f.write(content)
+        path = f.name
+
+    try:
+        loader = ManifestLoader()
+        manifest = loader.load(path)
+        assert manifest.content_type == "lavs/todo-list"
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+def test_load_rejects_invalid_content_type() -> None:
+    """v1.1: a malformed contentType is rejected at load time."""
+    content = json.dumps({
+        "lavs": "1.0",
+        "name": "bad-ct",
+        "contentType": "has space",
+        "version": "1.0.0",
+        "endpoints": [
+            {"id": "list", "method": "query", "handler": {"type": "script", "command": "echo"}},
+        ],
+    })
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        f.write(content)
+        path = f.name
+
+    try:
+        loader = ManifestLoader()
+        with pytest.raises(LAVSError) as exc_info:
+            loader.load(path)
+        assert exc_info.value.code == LAVSErrorCode.InvalidRequest
+        assert "contentType" in exc_info.value.message
+    finally:
+        Path(path).unlink(missing_ok=True)
