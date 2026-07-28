@@ -133,7 +133,7 @@ export async function createLAVSRegistryMcpServer(
           'Use this first to find what bundles and endpoints are available before calling lavs_call.',
         inputSchema: {
           registryDir: z.string().describe('Absolute path to the directory containing LAVS bundles (e.g. /path/to/project/bundles)'),
-        },
+        } as any,
       },
       async ({ registryDir }: { registryDir: string }) => {
         try {
@@ -209,7 +209,7 @@ export async function createLAVSRegistryMcpServer(
           bundle:      z.string().describe('Bundle name (from lavs_discover output, e.g. "todo-list")'),
           endpoint:    z.string().describe('Endpoint ID to call (e.g. "addTodo", "listNotes")'),
           params:      z.record(z.string(), z.unknown()).optional().describe('Input parameters for the endpoint (check lavs_discover output for schema)'),
-        },
+        } as any,
       },
       async ({ registryDir, bundle, endpoint, params }: {
         registryDir: string; bundle: string; endpoint: string; params?: Record<string, unknown>;
