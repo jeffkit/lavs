@@ -11,6 +11,7 @@ import {
   LAVSError,
   LAVSErrorCode,
 } from './types';
+import { debug } from './logger';
 
 export class ScriptExecutor {
   /**
@@ -26,7 +27,7 @@ export class ScriptExecutor {
     context: ExecutionContext
   ): Promise<any> {
     const startTime = Date.now();
-    console.error(`[LAVS] Executing script for ${context.endpointId}`, {
+    debug(`[LAVS] Executing script for ${context.endpointId}`, {
       command: handler.command,
       args: handler.args,
       input: handler.input,
@@ -57,7 +58,7 @@ export class ScriptExecutor {
           proc.stdin.write(JSON.stringify(input));
           proc.stdin.end();
         } catch (e: any) {
-          console.error(`[LAVS] Failed to write to stdin:`, e);
+          debug(`[LAVS] Failed to write to stdin:`, e);
         }
       }
 
@@ -65,7 +66,7 @@ export class ScriptExecutor {
       const result = await this.captureOutput(proc, timeout, context.endpointId);
 
       const duration = Date.now() - startTime;
-      console.error(`[LAVS] Script completed in ${duration}ms`, {
+      debug(`[LAVS] Script completed in ${duration}ms`, {
         endpointId: context.endpointId,
         exitCode: result.exitCode,
       });

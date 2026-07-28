@@ -121,6 +121,7 @@ function parseArgs(argv: string[]): CLIOptions {
       case '--input':        input       = args[++i]; break;
       case '--port':         port        = parseInt(args[++i], 10) || DEFAULT_HOST_PORT; break;
       case '--no-open':      noOpen      = true; break;
+      case '--quiet':        process.env.LAVS_QUIET = '1'; break;
       default:
         console.error(`Unknown option: ${args[i]}`);
         printUsage();
@@ -192,6 +193,10 @@ Options (discover / view):
 Options (call):
   --agent-dir <path>       Agent directory with lavs.json (default: cwd)
   --input <json>           Input parameters as JSON string (default: {})
+  --quiet                  Suppress diagnostic logging (stderr) — use when piping output
+
+Global options:
+  --quiet                  Applies to any command; silences [LAVS] tracing on stderr
 
 Examples:
   # Open the standalone host for all bundles in ./agents/
@@ -363,7 +368,9 @@ async function runCall(options: CLIOptions): Promise<void> {
     catch { console.error(`[LAVS] Invalid --input JSON: ${inputStr}`); process.exit(1); }
   }
 
-  console.error(`[LAVS] Calling endpoint "${endpoint}" in ${agentDir}`);
+  if (process.env.LAVS_QUIET !== '1') {
+    console.error(`[LAVS] Calling endpoint "${endpoint}" in ${agentDir}`);
+  }
 
   try {
     const gen = new LAVSToolGenerator();
@@ -519,6 +526,11 @@ async function runDaemonMac(action: DaemonAction, registryDirs: string[], port: 
     <array>
 ${argXml}
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LAVS_HOST_PORT</key>
+        <string>${port}</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -592,6 +604,7 @@ After=network.target
 
 [Service]
 ExecStart=${execStart}
+Environment="LAVS_HOST_PORT=${port}"
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:/tmp/lavs-host.log

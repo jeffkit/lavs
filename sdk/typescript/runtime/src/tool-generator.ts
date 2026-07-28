@@ -14,10 +14,24 @@ import { PermissionChecker } from './permission-checker';
 import { ScriptHandler, FunctionHandler, HTTPHandler, MCPHandler, ExecutionContext } from './types';
 import { HttpExecutor } from './http-executor';
 import { McpExecutor } from './mcp-executor';
+import { debug } from './logger';
 import path from 'path';
 import http from 'http';
 
-const GLOBAL_HOST_PORT = 7842;
+/**
+ * The default port the LAVS host listens on. Can be overridden via the
+ * LAVS_HOST_PORT environment variable — this lets `lavs call` notify a host
+ * running on a non-default port (e.g. when `lavs view --port 9000` is used,
+ * or when the daemon plist configures a custom port).
+ */
+function getGlobalHostPort(): number {
+  const env = process.env.LAVS_HOST_PORT;
+  if (env) {
+    const n = parseInt(env, 10);
+    if (!Number.isNaN(n) && n > 0) return n;
+  }
+  return 7842;
+}
 
 /**
  * Fire-and-forget: notify the global LAVS host that a mutation happened
@@ -28,7 +42,7 @@ function notifyGlobalHost(bundleName: string, endpointId: string, data: unknown)
     const body = JSON.stringify({ data });
     const req = http.request({
       hostname: '127.0.0.1',
-      port: GLOBAL_HOST_PORT,
+      port: getGlobalHostPort(),
       path: `/api/notify/${encodeURIComponent(bundleName)}/${encodeURIComponent(endpointId)}`,
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
@@ -105,7 +119,7 @@ export class LAVSToolGenerator {
         tools.push(tool);
       }
 
-      console.error(`[LAVS] Generated ${tools.length} tools for agent ${agentId}`);
+      debug(`[LAVS] Generated ${tools.length} tools for agent ${agentId}`);
       return tools;
     } catch (error: unknown) {
       // If no lavs.json, that's OK - just return empty array
@@ -161,7 +175,7 @@ export class LAVSToolGenerator {
 
     // Create executor function
     const execute: ToolExecutor = async (params: any) => {
-      console.error(`[LAVS] Executing tool ${toolName} with params:`, params);
+      debug(`[LAVS] Executing tool ${toolName} with params:`, params);
 
       // 1. Validate input against schema (pass manifest types for $ref resolution)
       validator.assertValidInput(endpoint, params, manifestTypes);
