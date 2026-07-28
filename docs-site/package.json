@@ -1,0 +1,15 @@
+{
+  "name": "lavs-docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LAVS documentation site (VitePress)",
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.5.0"
+  }
+}
