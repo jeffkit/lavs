@@ -122,7 +122,7 @@ export interface LAVSHostServer {
   server: http.Server;
   port: number;
   /** Notify connected view clients that an agent action occurred */
-  notifyAgentAction(bundleName: string, endpointId: string, result?: unknown): void;
+  notifyAgentAction(bundleName: string, endpointId: string, result?: unknown, contentType?: string): void;
   /** Add a registry directory at runtime */
   addRegistryDir(dir: string): void;
   /** Remove a registry directory at runtime */
@@ -172,13 +172,18 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
     }
   }
 
-  function broadcastAgentAction(bundleName: string, endpointId: string, result?: unknown): void {
+  function broadcastAgentAction(bundleName: string, endpointId: string, result?: unknown, contentType?: string): void {
     const payload = {
       type: 'lavs-agent-action',
       action: {
         type: 'tool_executed',
         tool: `lavs_${endpointId}`,
-        contentType: bundleName,
+        // contentType is the routing key clients use to direct events to the
+        // correct view iframe. MUST be the bundle's declared contentType
+        // (manifest.contentType ?? name), NOT the bundle name. Callers that
+        // have already discovered the bundle should pass it explicitly;
+        // falls back to bundleName if unknown (e.g. CLI notify path).
+        contentType: contentType ?? bundleName,
         timestamp: Date.now(),
         result,
       },
@@ -297,7 +302,7 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
         // Only broadcast for mutations (not queries) to avoid loops:
         // queries are typically view-initiated and the view already has the result.
         if (endpoint?.method === 'mutation') {
-          broadcastAgentAction(bundleName, endpointId, result);
+          broadcastAgentAction(bundleName, endpointId, result, bundle.contentType);
         }
 
         respondJson(res, 200, { result });
@@ -316,7 +321,10 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
       const body = await readBody(req);
       let result: unknown;
       if (body) { try { result = JSON.parse(body).result; } catch { /* ignore */ } }
-      broadcastAgentAction(bundleName, endpointId, result);
+      // Resolve contentType so the SSE payload carries the correct routing key.
+      const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
+      const bundle = bundles.find((b) => b.name === bundleName);
+      broadcastAgentAction(bundleName, endpointId, result, bundle?.contentType);
       respondJson(res, 200, { ok: true });
       return;
     }
@@ -389,9 +397,12 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
     server.on('error', reject);
   });
 
+  // When port 0 is passed, the OS assigns an ephemeral port — read the actual one.
+  const actualPort = (server.address() as any)?.port ?? port;
+
   return {
     server,
-    port,
+    port: actualPort,
     notifyAgentAction: broadcastAgentAction,
     addRegistryDir: (dir: string) => {
       const absDir = path.resolve(dir);
