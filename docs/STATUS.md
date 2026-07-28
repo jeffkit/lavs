@@ -105,10 +105,12 @@ MCP-compatible client (Claude Code, Cursor, etc.) can drive a LAVS agent.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| dispatch algorithm in host | ⬜ Planned | v1.1 spec written, not yet implemented |
+| tool-result dispatch (iframe pool + SSE routing) | ✅ Done | v1.1 spec calibrated to tool-result-only normative (§11) |
 | Official bundle: `lavs/todo-list` | ✅ Done | Full CRUD (add/toggle/delete/clearDone) + priority + tags + view |
-| Official bundle: `lavs/daily-note` | ⬜ Planned | |
-| Official bundle: `lavs/data-table` | ⬜ Planned | Generic tabular data view |
+| Official bundle: `lavs/daily-note` | ✅ Done | Time-series notes, date grouping, full-text search |
+| Official bundle: `lavs/data-table` | ✅ Done | Generic tabular viewer, sortable/filterable, CSV export |
+| Official bundle: `lavs/bookmark` | ✅ Done | URL manager, tag aggregation, card layout |
+| Third-party bundle authoring guide | ✅ Done | docs-site/guide/create-bundle.md |
 | npm publish `@lavs/runtime` + `@lavs/client` | ⬜ Planned | |
 
 ### Phase 3 — ecosystem

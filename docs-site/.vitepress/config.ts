@@ -39,6 +39,12 @@ export default defineConfig({
             { text: '后台常驻（Daemon）', link: '/guide/daemon' },
           ],
         },
+        {
+          text: 'Bundle',
+          items: [
+            { text: '编写自己的 Bundle', link: '/guide/create-bundle' },
+          ],
+        },
       ],
       '/spec/': [
         {

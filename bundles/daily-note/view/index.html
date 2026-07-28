@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Notes</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e4e4e7; padding: 20px; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  .header { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+  .header h1 { font-size: 18px; font-weight: 600; white-space: nowrap; }
+  .search-box { flex: 1; display: flex; gap: 8px; }
+  .search-box input { flex: 1; background: #1c1f2a; border: 1px solid #2d3142; color: #e4e4e7; padding: 6px 10px; border-radius: 6px; font-size: 13px; outline: none; }
+  .search-box input:focus { border-color: #6366f1; }
+  .btn { background: #6366f1; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+  .btn:hover { background: #5457e5; }
+  .btn.ghost { background: #1c1f2a; border: 1px solid #2d3142; }
+  .btn.ghost:hover { background: #252836; }
+
+  .compose { display: none; gap: 8px; margin-bottom: 16px; }
+  .compose.open { display: flex; }
+  .compose textarea { flex: 1; background: #1c1f2a; border: 1px solid #2d3142; color: #e4e4e7; padding: 8px; border-radius: 6px; font-size: 13px; resize: vertical; min-height: 48px; outline: none; font-family: inherit; }
+  .compose textarea:focus { border-color: #6366f1; }
+  .compose-side { display: flex; flex-direction: column; gap: 6px; }
+  .compose-side input { background: #1c1f2a; border: 1px solid #2d3142; color: #e4e4e7; padding: 5px 8px; border-radius: 6px; font-size: 12px; outline: none; width: 100px; }
+
+  .notes-list { flex: 1; overflow-y: auto; padding-right: 4px; }
+  .notes-list::-webkit-scrollbar { width: 6px; }
+  .notes-list::-webkit-scrollbar-thumb { background: #2d3142; border-radius: 3px; }
+
+  .date-group { margin-bottom: 18px; }
+  .date-label { font-size: 11px; color: #8b8d98; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; font-weight: 600; }
+
+  .note { background: #1c1f2a; border: 1px solid #2d3142; border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; transition: border-color 0.15s; }
+  .note:hover { border-color: #3d4156; }
+  .note-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+  .note-meta { display: flex; gap: 8px; align-items: center; font-size: 11px; color: #8b8d98; }
+  .note-cat { background: #6366f1; color: #fff; padding: 1px 7px; border-radius: 10px; font-size: 10px; }
+  .note-time { font-variant-numeric: tabular-nums; }
+  .note-actions { display: none; gap: 4px; }
+  .note:hover .note-actions { display: flex; }
+  .note-actions button { background: none; border: none; color: #8b8d98; cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 3px; }
+  .note-actions button:hover { background: #2d3142; color: #e4e4e7; }
+  .note-text { font-size: 13px; line-height: 1.5; color: #d4d4d8; white-space: pre-wrap; word-break: break-word; }
+  .note-text.editing { display: none; }
+  .note-edit-area { display: none; width: 100%; background: #0f1117; border: 1px solid #6366f1; color: #e4e4e7; padding: 6px; border-radius: 4px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 40px; outline: none; }
+  .note-edit-area.open { display: block; }
+
+  .empty { text-align: center; color: #8b8d98; padding: 40px 20px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📔 Daily Notes</h1>
+  <div class="search-box">
+    <input type="text" id="searchInput" placeholder="搜索笔记…">
+    <button class="btn ghost" id="clearSearch" style="display:none" onclick="clearSearch()">清除</button>
+  </div>
+  <button class="btn" id="composeBtn" onclick="toggleCompose()">＋ 新笔记</button>
+</div>
+
+<div class="compose" id="composeBox">
+  <textarea id="composeText" placeholder="写下你的想法…"></textarea>
+  <div class="compose-side">
+    <input type="text" id="composeCategory" placeholder="类别（可选）">
+    <button class="btn" onclick="addNote()">保存</button>
+  </div>
+</div>
+
+<div class="notes-list" id="notesList">
+  <div class="empty">加载中…</div>
+</div>
+
+<script>
+function callEndpoint(endpoint, input) {
+  return new Promise((resolve, reject) => {
+    const id = Math.random().toString(36).slice(2);
+    const handler = (event) => {
+      if (event.data.id !== id) return;
+      window.removeEventListener('message', handler);
+      if (event.data.type === 'lavs-result') resolve(event.data.result);
+      else reject(new Error(event.data.error));
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type: 'lavs-call', id, endpoint, input: input || {} }, '*');
+  });
+}
+
+window.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'lavs-agent-action') {
+    renderNotes();
+  }
+});
+
+let currentSearch = '';
+
+async function renderNotes() {
+  const list = document.getElementById('notesList');
+  try {
+    const notes = currentSearch
+      ? await callEndpoint('searchNotes', { q: currentSearch })
+      : await callEndpoint('listNotes');
+
+    if (!notes.length) {
+      list.innerHTML = '<div class="empty">' + (currentSearch ? '没有匹配的笔记' : '还没有笔记。点击「新笔记」开始记录。') + '</div>';
+      return;
+    }
+
+    // Group by date
+    const groups = {};
+    for (const n of notes) {
+      const d = n.date || n.createdAt.slice(0, 10);
+      if (!groups[d]) groups[d] = [];
+      groups[d].push(n);
+    }
+    const dates = Object.keys(groups).sort().reverse();
+
+    list.innerHTML = dates.map(d => `
+      <div class="date-group">
+        <div class="date-label">${formatDate(d)}</div>
+        ${groups[d].map(n => renderNote(n)).join('')}
+      </div>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty">加载失败: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function renderNote(n) {
+  const time = n.createdAt.slice(11, 16);
+  const cat = n.category ? `<span class="note-cat">${escHtml(n.category)}</span>` : '';
+  const updated = n.updatedAt && n.updatedAt !== n.createdAt ? ' <span title="已编辑">✎</span>' : '';
+  return `
+    <div class="note" data-id="${escHtml(n.id)}">
+      <div class="note-head">
+        <div class="note-meta">${cat}<span class="note-time">${time}${updated}</span></div>
+        <div class="note-actions">
+          <button onclick="startEdit('${escHtml(n.id)}')">编辑</button>
+          <button onclick="deleteNote('${escHtml(n.id)}')">删除</button>
+        </div>
+      </div>
+      <div class="note-text" id="text-${escHtml(n.id)}">${escHtml(n.text)}</div>
+      <textarea class="note-edit-area" id="edit-${escHtml(n.id)}">${escHtml(n.text)}</textarea>
+    </div>
+  `;
+}
+
+function toggleCompose() {
+  const box = document.getElementById('composeBox');
+  box.classList.toggle('open');
+  if (box.classList.contains('open')) document.getElementById('composeText').focus();
+}
+
+async function addNote() {
+  const text = document.getElementById('composeText').value.trim();
+  if (!text) return;
+  const category = document.getElementById('composeCategory').value.trim();
+  document.getElementById('composeText').value = '';
+  document.getElementById('composeCategory').value = '';
+  await callEndpoint('addNote', { text, category: category || undefined });
+  // host SSE will trigger renderNotes via agent-action listener
+  renderNotes();
+}
+
+function startEdit(id) {
+  const textEl = document.getElementById('text-' + id);
+  const editEl = document.getElementById('edit-' + id);
+  textEl.classList.add('editing');
+  editEl.classList.add('open');
+  editEl.focus();
+  editEl.onkeydown = async (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const newText = editEl.value.trim();
+      if (newText) {
+        await callEndpoint('updateNote', { id, text: newText });
+        renderNotes();
+      }
+    }
+    if (e.key === 'Escape') {
+      textEl.classList.remove('editing');
+      editEl.classList.remove('open');
+    }
+  };
+}
+
+async function deleteNote(id) {
+  await callEndpoint('deleteNote', { id });
+  renderNotes();
+}
+
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  currentSearch = e.target.value.trim();
+  document.getElementById('clearSearch').style.display = currentSearch ? 'block' : 'none';
+  renderNotes();
+});
+
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  currentSearch = '';
+  document.getElementById('clearSearch').style.display = 'none';
+  renderNotes();
+}
+
+document.getElementById('composeText').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addNote(); }
+});
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function formatDate(d) {
+  const today = new Date().toISOString().slice(0,10);
+  const yest = new Date(Date.now()-86400000).toISOString().slice(0,10);
+  if (d === today) return '今天 · ' + d;
+  if (d === yest) return '昨天 · ' + d;
+  return d;
+}
+
+renderNotes();
+</script>
+</body>
+</html>

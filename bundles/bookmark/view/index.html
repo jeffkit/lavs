@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bookmarks</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e4e4e7; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  .toolbar { display: flex; gap: 12px; padding: 16px 20px; align-items: center; border-bottom: 1px solid #1c1f2a; flex-wrap: wrap; }
+  .toolbar h1 { font-size: 16px; font-weight: 600; }
+  .add-form { display: none; gap: 6px; width: 100%; flex-wrap: wrap; }
+  .add-form.open { display: flex; }
+  .add-form input { background: #1c1f2a; border: 1px solid #2d3142; color: #e4e4e7; padding: 5px 8px; border-radius: 6px; font-size: 12px; outline: none; }
+  .add-form input:focus { border-color: #6366f1; }
+  .add-form input.url { flex: 1; min-width: 200px; }
+  .btn { background: #6366f1; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .btn:hover { background: #5457e5; }
+  .btn.ghost { background: #1c1f2a; border: 1px solid #2d3142; }
+  .btn.ghost:hover { background: #252836; }
+
+  .tags-bar { display: flex; gap: 6px; padding: 10px 20px; border-bottom: 1px solid #1c1f2a; flex-wrap: wrap; align-items: center; }
+  .tag-chip { background: #1c1f2a; border: 1px solid #2d3142; color: #8b8d98; padding: 3px 10px; border-radius: 12px; font-size: 11px; cursor: pointer; transition: all 0.15s; }
+  .tag-chip:hover { border-color: #6366f1; color: #e4e4e7; }
+  .tag-chip.active { background: #6366f1; color: #fff; border-color: #6366f1; }
+  .tag-count { opacity: 0.6; font-size: 10px; }
+
+  .cards { flex: 1; overflow-y: auto; padding: 16px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; align-content: start; }
+  .cards::-webkit-scrollbar { width: 6px; }
+  .cards::-webkit-scrollbar-thumb { background: #2d3142; border-radius: 3px; }
+
+  .card { background: #1c1f2a; border: 1px solid #2d3142; border-radius: 8px; padding: 12px; transition: border-color 0.15s; position: relative; }
+  .card:hover { border-color: #3d4156; }
+  .card a { color: #818cf8; text-decoration: none; font-size: 13px; font-weight: 500; word-break: break-all; }
+  .card a:hover { color: #a5b4fc; }
+  .card-title { font-size: 13px; font-weight: 600; color: #e4e4e7; margin-bottom: 4px; }
+  .card-desc { font-size: 12px; color: #a1a1aa; line-height: 1.5; margin-top: 6px; }
+  .card-foot { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .card-tag { background: #2d3142; color: #c4b5fd; padding: 1px 7px; border-radius: 8px; font-size: 10px; }
+  .card-del { position: absolute; top: 8px; right: 8px; background: none; border: none; color: #5c5e6a; cursor: pointer; font-size: 14px; display: none; border-radius: 4px; width: 22px; height: 22px; }
+  .card:hover .card-del { display: block; }
+  .card-del:hover { background: #ef4444; color: #fff; }
+
+  .empty { grid-column: 1/-1; text-align: center; color: #8b8d98; padding: 60px 20px; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>🔖 Bookmarks</h1>
+  <button class="btn" id="addBtn" onclick="toggleAdd()">＋ 添加</button>
+</div>
+
+<form class="add-form" id="addForm" onsubmit="return false">
+  <input type="url" class="url" id="inputUrl" placeholder="https://...">
+  <input type="text" id="inputTitle" placeholder="标题（可选）" style="width:140px">
+  <input type="text" id="inputTags" placeholder="标签（逗号分隔）" style="width:160px">
+  <button type="button" class="btn" onclick="addBookmark()">保存</button>
+</form>
+
+<div class="tags-bar" id="tagsBar"></div>
+
+<div class="cards" id="cardsList"></div>
+
+<script>
+function callEndpoint(endpoint, input) {
+  return new Promise((resolve, reject) => {
+    const id = Math.random().toString(36).slice(2);
+    const handler = (event) => {
+      if (event.data.id !== id) return;
+      window.removeEventListener('message', handler);
+      if (event.data.type === 'lavs-result') resolve(event.data.result);
+      else reject(new Error(event.data.error));
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type: 'lavs-call', id, endpoint, input: input || {} }, '*');
+  });
+}
+
+window.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'lavs-agent-action') {
+    render();
+  }
+});
+
+let activeTag = null;
+
+async function render() {
+  try {
+    const [bookmarks, tags] = await Promise.all([
+      activeTag ? callEndpoint('listBookmarks', { tag: activeTag }) : callEndpoint('listBookmarks'),
+      callEndpoint('listTags')
+    ]);
+    renderTags(tags);
+    renderCards(bookmarks);
+  } catch (e) {
+    document.getElementById('cardsList').innerHTML = '<div class="empty">加载失败: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function renderTags(tags) {
+  const bar = document.getElementById('tagsBar');
+  let html = `<span class="tag-chip ${!activeTag ? 'active' : ''}" onclick="selectTag(null)">全部</span>`;
+  for (const t of tags) {
+    html += `<span class="tag-chip ${activeTag === t.tag ? 'active' : ''}" onclick="selectTag('${escAttr(t.tag)}')">${escHtml(t.tag)} <span class="tag-count">${t.count}</span></span>`;
+  }
+  bar.innerHTML = html;
+}
+
+function renderCards(bookmarks) {
+  const el = document.getElementById('cardsList');
+  if (!bookmarks.length) {
+    el.innerHTML = '<div class="empty">' + (activeTag ? '该标签下没有书签' : '还没有书签。点击「添加」或让 Agent 用 addBookmark 保存。') + '</div>';
+    return;
+  }
+  el.innerHTML = bookmarks.map(b => {
+    const host = (() => { try { return new URL(b.url).hostname.replace(/^www\./,''); } catch { return ''; } })();
+    const tags = (b.tags||[]).map(t => `<span class="card-tag">${escHtml(t)}</span>`).join('');
+    const desc = b.description ? `<div class="card-desc">${escHtml(b.description)}</div>` : '';
+    return `
+      <div class="card">
+        <button class="card-del" onclick="deleteBm('${escAttr(b.id)}')" title="删除">×</button>
+        <div class="card-title">${escHtml(b.title || host || b.url)}</div>
+        <a href="${escAttr(b.url)}" target="_blank" rel="noopener">${escHtml(host || b.url)}</a>
+        ${desc}
+        ${tags ? `<div class="card-foot">${tags}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function selectTag(tag) {
+  activeTag = tag;
+  render();
+}
+
+function toggleAdd() {
+  const f = document.getElementById('addForm');
+  f.classList.toggle('open');
+  if (f.classList.contains('open')) document.getElementById('inputUrl').focus();
+}
+
+async function addBookmark() {
+  const url = document.getElementById('inputUrl').value.trim();
+  if (!url) return;
+  const title = document.getElementById('inputTitle').value.trim();
+  const tagsStr = document.getElementById('inputTags').value.trim();
+  const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+  document.getElementById('inputUrl').value = '';
+  document.getElementById('inputTitle').value = '';
+  document.getElementById('inputTags').value = '';
+  await callEndpoint('addBookmark', { url, title: title || undefined, tags });
+  render();
+}
+
+async function deleteBm(id) {
+  await callEndpoint('deleteBookmark', { id });
+  render();
+}
+
+document.getElementById('addForm').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); addBookmark(); }
+});
+
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escAttr(s) { return String(s).replace(/'/g,"\\'"); }
+
+render();
+</script>
+</body>
+</html>

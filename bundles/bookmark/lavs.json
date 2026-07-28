@@ -1,0 +1,124 @@
+{
+  "lavs": "1.0",
+  "name": "bookmark",
+  "contentType": "lavs/bookmark",
+  "version": "1.0.0",
+  "description": "Bookmark manager — save, tag, and browse URLs with descriptions",
+  "endpoints": [
+    {
+      "id": "listBookmarks",
+      "method": "query",
+      "description": "List all bookmarks, optionally filtered by tag",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/list.js"],
+        "input": "args"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "tag": { "type": "string", "description": "Filter by tag (exact match)" }
+          }
+        },
+        "output": {
+          "type": "array",
+          "items": { "$ref": "#/types/Bookmark" }
+        }
+      }
+    },
+    {
+      "id": "addBookmark",
+      "method": "mutation",
+      "description": "Add a new bookmark",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/add.js"],
+        "input": "stdin"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["url"],
+          "properties": {
+            "url":         { "type": "string", "description": "The URL to bookmark" },
+            "title":       { "type": "string", "description": "Display title (defaults to URL host)" },
+            "description": { "type": "string", "description": "Why this is worth bookmarking" },
+            "tags":        { "type": "array", "items": { "type": "string" }, "description": "Categorization tags" }
+          }
+        },
+        "output": { "$ref": "#/types/Bookmark" }
+      }
+    },
+    {
+      "id": "deleteBookmark",
+      "method": "mutation",
+      "description": "Delete a bookmark by id",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/delete.js"],
+        "input": "stdin"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": { "type": "string" }
+          }
+        },
+        "output": { "type": "object", "properties": { "deleted": { "type": "boolean" } } }
+      }
+    },
+    {
+      "id": "listTags",
+      "method": "query",
+      "description": "List all tags with their bookmark counts",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/tags.js"]
+      },
+      "schema": {
+        "output": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tag":   { "type": "string" },
+              "count": { "type": "integer" }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "view": {
+    "component": {
+      "type": "local",
+      "path": "./view/index.html"
+    },
+    "fallback": "table"
+  },
+  "types": {
+    "Bookmark": {
+      "type": "object",
+      "required": ["id", "url", "createdAt"],
+      "properties": {
+        "id":          { "type": "string" },
+        "url":         { "type": "string" },
+        "title":       { "type": "string" },
+        "description": { "type": "string" },
+        "tags":        { "type": "array", "items": { "type": "string" } },
+        "createdAt":   { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "permissions": {
+    "fileAccess": ["./data/**/*.json"],
+    "maxExecutionTime": 5000
+  }
+}

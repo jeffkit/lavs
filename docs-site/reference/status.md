@@ -55,8 +55,10 @@ LAVS 已从「Agent 的脸」重新定位为 **CLI 优先的结构化数据可�
 |---|---|
 | tool-result dispatch（iframe 池 + SSE 路由） | ✅ |
 | 官方 bundle `lavs/todo-list` | ✅ |
-| 官方 bundle `lavs/daily-note` | ❌ 计划中 |
-| 官方 bundle `lavs/data-table` | ❌ 计划中 |
+| 官方 bundle `lavs/daily-note` | ✅ |
+| 官方 bundle `lavs/data-table` | ✅ |
+| 官方 bundle `lavs/bookmark` | ✅ |
+| 第三方 bundle 发布指南 | ✅ |
 | npm 发布 `@lavs/runtime` + `@lavs/client` | ❌ 计划中 |
 
 ### Phase 3 — 生态

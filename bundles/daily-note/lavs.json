@@ -1,0 +1,147 @@
+{
+  "lavs": "1.0",
+  "name": "daily-note",
+  "contentType": "lavs/daily-note",
+  "version": "1.0.0",
+  "description": "Quick daily notes journal — capture, list, and revise timestamped notes",
+  "endpoints": [
+    {
+      "id": "listNotes",
+      "method": "query",
+      "description": "List all notes, optionally filtered by date (YYYY-MM-DD)",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/list.js"],
+        "input": "args"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "date": { "type": "string", "description": "Filter by date (YYYY-MM-DD). Omit for all notes." }
+          }
+        },
+        "output": {
+          "type": "array",
+          "items": { "$ref": "#/types/Note" }
+        }
+      }
+    },
+    {
+      "id": "addNote",
+      "method": "mutation",
+      "description": "Add a new note (auto-timestamped)",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/add.js"],
+        "input": "stdin"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["text"],
+          "properties": {
+            "text":     { "type": "string", "description": "Note content" },
+            "date":     { "type": "string", "description": "Override date (YYYY-MM-DD). Defaults to today." },
+            "category": { "type": "string", "description": "Optional category tag (e.g. 'idea', 'todo', 'log')" }
+          }
+        },
+        "output": { "$ref": "#/types/Note" }
+      }
+    },
+    {
+      "id": "updateNote",
+      "method": "mutation",
+      "description": "Revise a note's text",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/update.js"],
+        "input": "stdin"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["id", "text"],
+          "properties": {
+            "id":   { "type": "string", "description": "Note ID" },
+            "text": { "type": "string", "description": "New text content" }
+          }
+        },
+        "output": { "$ref": "#/types/Note" }
+      }
+    },
+    {
+      "id": "deleteNote",
+      "method": "mutation",
+      "description": "Delete a note by id",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/delete.js"],
+        "input": "stdin"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": { "type": "string" }
+          }
+        },
+        "output": { "type": "object", "properties": { "deleted": { "type": "boolean" } } }
+      }
+    },
+    {
+      "id": "searchNotes",
+      "method": "query",
+      "description": "Full-text search across all notes",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/search.js"],
+        "input": "args"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["q"],
+          "properties": {
+            "q": { "type": "string", "description": "Search query (case-insensitive substring)" }
+          }
+        },
+        "output": {
+          "type": "array",
+          "items": { "$ref": "#/types/Note" }
+        }
+      }
+    }
+  ],
+  "view": {
+    "component": {
+      "type": "local",
+      "path": "./view/index.html"
+    },
+    "fallback": "table"
+  },
+  "types": {
+    "Note": {
+      "type": "object",
+      "required": ["id", "text", "createdAt"],
+      "properties": {
+        "id":        { "type": "string" },
+        "text":      { "type": "string" },
+        "date":      { "type": "string", "description": "YYYY-MM-DD" },
+        "category":  { "type": ["string", "null"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "permissions": {
+    "fileAccess": ["./data/**/*.json"],
+    "maxExecutionTime": 5000
+  }
+}

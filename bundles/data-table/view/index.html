@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Table</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e4e4e7; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  .toolbar { display: flex; gap: 12px; padding: 16px 20px; align-items: center; border-bottom: 1px solid #1c1f2a; }
+  .toolbar h1 { font-size: 16px; font-weight: 600; margin-right: auto; }
+  .toolbar .count { font-size: 12px; color: #8b8d98; }
+  .filter-input { background: #1c1f2a; border: 1px solid #2d3142; color: #e4e4e7; padding: 5px 10px; border-radius: 6px; font-size: 12px; outline: none; width: 180px; }
+  .filter-input:focus { border-color: #6366f1; }
+  .btn { background: #6366f1; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .btn:hover { background: #5457e5; }
+  .btn.ghost { background: #1c1f2a; border: 1px solid #2d3142; }
+  .btn.ghost:hover { background: #252836; }
+
+  .table-wrap { flex: 1; overflow: auto; padding: 0 20px 16px; }
+  .table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+  .table-wrap::-webkit-scrollbar-thumb { background: #2d3142; border-radius: 3px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead { position: sticky; top: 0; background: #0f1117; z-index: 1; }
+  th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #2d3142; color: #8b8d98; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; user-select: none; white-space: nowrap; }
+  th:hover { color: #e4e4e7; }
+  th .sort-arrow { margin-left: 4px; opacity: 0.6; }
+  th.sorted .sort-arrow { opacity: 1; color: #6366f1; }
+  td { padding: 7px 12px; border-bottom: 1px solid #1c1f2a; color: #d4d4d8; vertical-align: top; }
+  tr:hover td { background: #1a1d27; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+
+  .empty { text-align: center; color: #8b8d98; padding: 60px 20px; }
+  .empty .big { font-size: 36px; margin-bottom: 8px; }
+  .empty code { background: #1c1f2a; padding: 2px 6px; border-radius: 4px; color: #6366f1; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>📊 Data Table</h1>
+  <span class="count" id="rowCount"></span>
+  <input type="text" class="filter-input" id="filterInput" placeholder="筛选…">
+  <button class="btn ghost" onclick="exportCsv()">导出 CSV</button>
+</div>
+
+<div class="table-wrap" id="tableWrap">
+  <div class="empty" id="emptyState">
+    <div class="big">📭</div>
+    <p>表格为空。让 Agent 用 <code>setTable</code> 或 <code>addRows</code> 推入数据。</p>
+    <p style="margin-top:8px;font-size:11px">例如：<code>lavs call setTable --input '{"columns":["name","value"],"rows":[{"name":"a","value":1}]}'</code></p>
+  </div>
+  <table id="dataTable" style="display:none">
+    <thead id="tableHead"></thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+</div>
+
+<script>
+function callEndpoint(endpoint, input) {
+  return new Promise((resolve, reject) => {
+    const id = Math.random().toString(36).slice(2);
+    const handler = (event) => {
+      if (event.data.id !== id) return;
+      window.removeEventListener('message', handler);
+      if (event.data.type === 'lavs-result') resolve(event.data.result);
+      else reject(new Error(event.data.error));
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type: 'lavs-call', id, endpoint, input: input || {} }, '*');
+  });
+}
+
+window.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'lavs-agent-action') {
+    loadTable();
+  }
+});
+
+let tableData = { columns: [], rows: [] };
+let sortCol = null;
+let sortDesc = false;
+let filterText = '';
+
+async function loadTable() {
+  try {
+    tableData = await callEndpoint('getRows');
+    renderTable();
+  } catch (e) {
+    document.getElementById('emptyState').innerHTML = '加载失败: ' + escHtml(e.message);
+  }
+}
+
+function renderTable() {
+  const { columns, rows } = tableData;
+  const tableEl = document.getElementById('dataTable');
+  const emptyEl = document.getElementById('emptyState');
+
+  if (!rows.length) {
+    tableEl.style.display = 'none';
+    emptyEl.style.display = 'block';
+    document.getElementById('rowCount').textContent = '';
+    return;
+  }
+
+  tableEl.style.display = 'table';
+  emptyEl.style.display = 'none';
+  document.getElementById('rowCount').textContent = rows.length + ' 行';
+
+  // Render headers
+  const cols = columns.length ? columns : Object.keys(rows[0]);
+  document.getElementById('tableHead').innerHTML = '<tr>' + cols.map(c => {
+    const sorted = sortCol === c ? 'sorted' : '';
+    const arrow = sortCol === c ? (sortDesc ? '▼' : '▲') : '↕';
+    return `<th class="${sorted}" onclick="toggleSort('${escAttr(c)}')">${escHtml(c)}<span class="sort-arrow">${arrow}</span></th>`;
+  }).join('') + '</tr>';
+
+  // Filter
+  let displayRows = rows;
+  if (filterText) {
+    const q = filterText.toLowerCase();
+    displayRows = rows.filter(r => cols.some(c => String(r[c] ?? '').toLowerCase().includes(q)));
+  }
+
+  // Sort
+  if (sortCol) {
+    displayRows = [...displayRows].sort((a, b) => {
+      const av = a[sortCol], bv = b[sortCol];
+      let cmp;
+      if (typeof av === 'number' && typeof bv === 'number') cmp = av - bv;
+      else cmp = String(av ?? '').localeCompare(String(bv ?? ''));
+      return sortDesc ? -cmp : cmp;
+    });
+  }
+
+  // Render rows
+  document.getElementById('tableBody').innerHTML = displayRows.map(r =>
+    '<tr>' + cols.map(c => {
+      const v = r[c];
+      const isNum = typeof v === 'number';
+      return `<td class="${isNum ? 'num' : ''}">${v === null || v === undefined ? '<span style="color:#5c5e6a">—</span>' : escHtml(String(v))}</td>`;
+    }).join('') + '</tr>'
+  ).join('');
+}
+
+function toggleSort(col) {
+  if (sortCol === col) {
+    sortDesc = !sortDesc;
+  } else {
+    sortCol = col;
+    sortDesc = false;
+  }
+  renderTable();
+}
+
+document.getElementById('filterInput').addEventListener('input', (e) => {
+  filterText = e.target.value;
+  renderTable();
+});
+
+function exportCsv() {
+  const { columns, rows } = tableData;
+  if (!rows.length) return;
+  const cols = columns.length ? columns : Object.keys(rows[0]);
+  const csv = [
+    cols.map(c => `"${c.replace(/"/g, '""')}"`).join(','),
+    ...rows.map(r => cols.map(c => {
+      const v = r[c];
+      if (v === null || v === undefined) return '';
+      if (typeof v === 'object') return `"${JSON.stringify(v).replace(/"/g, '""')}"`;
+      return `"${String(v).replace(/"/g, '""')}"`;
+    }).join(','))
+  ].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'data-table-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) {
+  return String(s).replace(/'/g, "\\'");
+}
+
+loadTable();
+</script>
+</body>
+</html>

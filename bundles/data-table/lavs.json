@@ -1,0 +1,106 @@
+{
+  "lavs": "1.0",
+  "name": "data-table",
+  "contentType": "lavs/data-table",
+  "version": "1.0.0",
+  "description": "Generic tabular data viewer — agent pushes rows, view renders a sortable, filterable table",
+  "endpoints": [
+    {
+      "id": "getRows",
+      "method": "query",
+      "description": "Get all rows of the current table",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/get.js"]
+      },
+      "schema": {
+        "output": {
+          "type": "object",
+          "required": ["columns", "rows"],
+          "properties": {
+            "columns": { "type": "array", "items": { "type": "string" }, "description": "Column names in display order" },
+            "rows": { "type": "array", "items": { "type": "object" }, "description": "Each row is an object keyed by column name" }
+          }
+        }
+      }
+    },
+    {
+      "id": "setTable",
+      "method": "mutation",
+      "description": "Replace the entire table with new columns and rows",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/set.js"],
+        "input": "stdin"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["columns", "rows"],
+          "properties": {
+            "columns": { "type": "array", "items": { "type": "string" }, "description": "Column names in display order" },
+            "rows": { "type": "array", "items": { "type": "object" }, "description": "Each row is an object keyed by column name" }
+          }
+        },
+        "output": { "$ref": "#/types/Table" }
+      }
+    },
+    {
+      "id": "addRows",
+      "method": "mutation",
+      "description": "Append rows to the current table (columns union with existing)",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/add-rows.js"],
+        "input": "stdin"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["rows"],
+          "properties": {
+            "rows": { "type": "array", "items": { "type": "object" } }
+          }
+        },
+        "output": { "$ref": "#/types/Table" }
+      }
+    },
+    {
+      "id": "clearTable",
+      "method": "mutation",
+      "description": "Remove all rows (keep column definitions empty)",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/clear.js"]
+      },
+      "schema": {
+        "output": { "type": "object", "properties": { "cleared": { "type": "boolean" } } }
+      }
+    }
+  ],
+  "view": {
+    "component": {
+      "type": "local",
+      "path": "./view/index.html"
+    },
+    "fallback": "table"
+  },
+  "types": {
+    "Table": {
+      "type": "object",
+      "required": ["columns", "rows"],
+      "properties": {
+        "columns": { "type": "array", "items": { "type": "string" } },
+        "rows": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  },
+  "permissions": {
+    "fileAccess": ["./data/**/*.json"],
+    "maxExecutionTime": 5000
+  }
+}
