@@ -26,6 +26,8 @@ export interface BundleInfo {
   version: string;
   description?: string;
   dir: string;
+  /** The registry directory this bundle was discovered from. */
+  registryDir: string;
   hasView: boolean;
   viewEntry?: string; // relative path within bundle dir, e.g. "view/index.html"
   endpoints: Array<{ id: string; method: string; description?: string }>;
@@ -60,6 +62,7 @@ export async function discoverBundles(registryDir: string): Promise<BundleInfo[]
         version: manifest.version,
         description: manifest.description,
         dir,
+        registryDir,
         hasView: !!viewEntry,
         viewEntry,
         endpoints: manifest.endpoints.map((e: Endpoint) => ({
@@ -115,6 +118,12 @@ export interface LAVSHostServer {
   port: number;
   /** Notify connected view clients that an agent action occurred */
   notifyAgentAction(bundleName: string, endpointId: string, result?: unknown): void;
+  /** Add a registry directory at runtime */
+  addRegistryDir(dir: string): void;
+  /** Remove a registry directory at runtime */
+  removeRegistryDir(dir: string): void;
+  /** Get current registry directories */
+  getRegistryDirs(): string[];
   /** Close the server */
   close(): Promise<void>;
 }
@@ -142,7 +151,10 @@ export async function discoverBundlesFromDirs(registryDirs: string[]): Promise<B
  * Create and start the LAVS host HTTP server.
  */
 export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHostServer> {
-  const { registryDirs, port } = options;
+  const { port } = options;
+
+  // Mutable registry dirs — managed via /api/registries at runtime
+  let currentRegistryDirs: string[] = [...options.registryDirs];
 
   // SSE clients connected to /api/events
   const sseClients = new Set<SseClient>();
@@ -190,16 +202,44 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
 
     // ── GET / → serve host UI ──
     if (pathname === '/' && req.method === 'GET') {
-      const bundles = await discoverBundlesFromDirs(registryDirs);
-      const html = buildHostUI({ bundles, port });
+      const html = buildHostUI({ port });
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       return;
     }
 
-    // ── GET /api/discover → list bundles ──
+    // ── GET /api/registries → list current registry dirs ──
+    if (pathname === '/api/registries' && req.method === 'GET') {
+      respondJson(res, 200, { dirs: currentRegistryDirs });
+      return;
+    }
+
+    // ── POST /api/registries → add a registry dir at runtime ──
+    if (pathname === '/api/registries' && req.method === 'POST') {
+      const body = await readBody(req);
+      let dir: string;
+      try { dir = JSON.parse(body).dir; } catch { respondJson(res, 400, { error: 'Invalid JSON' }); return; }
+      if (!dir) { respondJson(res, 400, { error: '"dir" is required' }); return; }
+      const absDir = path.resolve(dir);
+      if (!currentRegistryDirs.includes(absDir)) currentRegistryDirs.push(absDir);
+      respondJson(res, 200, { dirs: currentRegistryDirs });
+      return;
+    }
+
+    // ── DELETE /api/registries → remove a registry dir ──
+    if (pathname === '/api/registries' && req.method === 'DELETE') {
+      const body = await readBody(req);
+      let dir: string;
+      try { dir = JSON.parse(body).dir; } catch { respondJson(res, 400, { error: 'Invalid JSON' }); return; }
+      const absDir = path.resolve(dir);
+      currentRegistryDirs = currentRegistryDirs.filter((d) => d !== absDir);
+      respondJson(res, 200, { dirs: currentRegistryDirs });
+      return;
+    }
+
+    // ── GET /api/discover → list bundles (dynamic, uses currentRegistryDirs) ──
     if (pathname === '/api/discover' && req.method === 'GET') {
-      const bundles = await discoverBundlesFromDirs(registryDirs);
+      const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
       respondJson(res, 200, bundles);
       return;
     }
@@ -208,7 +248,7 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
     const manifestMatch = pathname.match(/^\/api\/manifest\/([^/]+)$/);
     if (manifestMatch && req.method === 'GET') {
       const bundleName = decodeURIComponent(manifestMatch[1]);
-      const bundles = await discoverBundlesFromDirs(registryDirs);
+      const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
       const bundle = bundles.find((b) => b.name === bundleName);
       if (!bundle) { respondJson(res, 404, { error: `Bundle '${bundleName}' not found` }); return; }
       const loader = new ManifestLoader();
@@ -229,7 +269,7 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
         try { input = JSON.parse(body); } catch { /* ignore */ }
       }
 
-      const bundles = await discoverBundlesFromDirs(registryDirs);
+      const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
       const bundle = bundles.find((b) => b.name === bundleName);
       if (!bundle) { respondJson(res, 404, { error: `Bundle '${bundleName}' not found` }); return; }
 
@@ -307,7 +347,7 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
     if (viewMatch && req.method === 'GET') {
       const bundleName = decodeURIComponent(viewMatch[1]);
       const filePath = viewMatch[2] || 'index.html';
-      const bundles = await discoverBundlesFromDirs(registryDirs);
+      const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
       const bundle = bundles.find((b) => b.name === bundleName);
       if (!bundle) { respondJson(res, 404, { error: 'Bundle not found' }); return; }
 
@@ -348,6 +388,15 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
     server,
     port,
     notifyAgentAction: broadcastAgentAction,
+    addRegistryDir: (dir: string) => {
+      const absDir = path.resolve(dir);
+      if (!currentRegistryDirs.includes(absDir)) currentRegistryDirs.push(absDir);
+    },
+    removeRegistryDir: (dir: string) => {
+      const absDir = path.resolve(dir);
+      currentRegistryDirs = currentRegistryDirs.filter((d) => d !== absDir);
+    },
+    getRegistryDirs: () => [...currentRegistryDirs],
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
