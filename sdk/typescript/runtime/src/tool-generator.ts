@@ -65,6 +65,8 @@ export type ToolExecutor = (params: any) => Promise<any>;
 export interface GeneratedTool {
   tool: ClaudeTool;
   execute: ToolExecutor;
+  /** Endpoint method type — used by MCP server to format output and decide view refresh */
+  method: 'query' | 'mutation';
 }
 
 /**
@@ -252,7 +254,7 @@ export class LAVSToolGenerator {
       return result;
     };
 
-    return { tool, execute };
+    return { tool, execute, method: endpoint.method as 'query' | 'mutation' };
   }
 
   /**

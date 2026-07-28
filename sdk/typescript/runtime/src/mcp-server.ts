@@ -235,12 +235,7 @@ export async function createLAVSRegistryMcpServer(
             };
           }
           const result = await tool.execute(params || {});
-          return {
-            content: [{
-              type: 'text' as const,
-              text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
-            }],
-          };
+          return formatToolResult(tool.method, endpoint, result);
         } catch (err: any) {
           return { content: [{ type: 'text' as const, text: `Error: ${err.message}` }], isError: true };
         }
@@ -264,6 +259,7 @@ export async function createLAVSRegistryMcpServer(
       const renamedTool: GeneratedTool = {
         tool: { ...genTool.tool, name: `lavs_${prefix}_${endpointId}` },
         execute: genTool.execute,
+        method: genTool.method,
       };
       registerGeneratedTool(server, renamedTool);
       totalTools++;
@@ -281,10 +277,45 @@ export async function createLAVSRegistryMcpServer(
 }
 
 /**
+ * Format a tool result for MCP response.
+ *
+ * Mutations get a confirmation header ("✅ … completed — view will auto-refresh").
+ * Queries that return arrays get an item-count summary.
+ * Other results are returned as-is (JSON).
+ */
+function formatToolResult(
+  method: 'query' | 'mutation',
+  endpointId: string,
+  result: unknown
+): { content: Array<{ type: 'text'; text: string }> } {
+  const data = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+
+  if (method === 'mutation') {
+    return {
+      content: [{
+        type: 'text' as const,
+        text: `✅ ${endpointId} completed — LAVS view will auto-refresh.\n\n${data}`,
+      }],
+    };
+  }
+
+  if (Array.isArray(result)) {
+    return {
+      content: [{
+        type: 'text' as const,
+        text: `📋 ${result.length} item(s) returned.\n\n${data}`,
+      }],
+    };
+  }
+
+  return { content: [{ type: 'text' as const, text: data }] };
+}
+
+/**
  * Register a single LAVS GeneratedTool on the McpServer.
  */
 function registerGeneratedTool(server: McpServer, genTool: GeneratedTool): void {
-  const { tool: toolDef, execute } = genTool;
+  const { tool: toolDef, execute, method } = genTool;
 
   const inputSchema: Record<string, any> = {};
   if (toolDef.input_schema.properties) {
@@ -292,6 +323,8 @@ function registerGeneratedTool(server: McpServer, genTool: GeneratedTool): void 
       inputSchema[key] = toMcpPropertySchema(prop as any);
     }
   }
+
+  const endpointId = toolDef.name.replace(/^lavs_(?:[^_]+_)?/, '');
 
   server.registerTool(
     toolDef.name,
@@ -302,22 +335,13 @@ function registerGeneratedTool(server: McpServer, genTool: GeneratedTool): void 
     async (args: any) => {
       try {
         const result = await execute(args);
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
-            },
-          ],
-        };
+        return formatToolResult(method, endpointId, result);
       } catch (error: any) {
         return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `Error: ${error.message || String(error)}`,
-            },
-          ],
+          content: [{
+            type: 'text' as const,
+            text: `Error: ${error.message || String(error)}`,
+          }],
           isError: true,
         };
       }

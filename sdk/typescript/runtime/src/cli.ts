@@ -37,7 +37,8 @@ import { discoverBundles, discoverBundlesFromDirs, createHostServer } from './ho
 
 const DEFAULT_HOST_PORT = 7842;
 
-type Command = 'serve' | 'serve-registry' | 'init' | 'validate' | 'discover' | 'call' | 'view' | 'host';
+type Command = 'serve' | 'serve-registry' | 'init' | 'validate' | 'discover' | 'call' | 'view' | 'host' | 'daemon';
+type DaemonAction = 'install' | 'uninstall' | 'status';
 
 interface CLIOptions {
   command: Command;
@@ -54,9 +55,11 @@ interface CLIOptions {
   contentType?: string;
   port: number;
   noOpen: boolean;
+  // daemon
+  daemonAction?: DaemonAction;
 }
 
-const SUPPORTED: Command[] = ['serve', 'serve-registry', 'init', 'validate', 'discover', 'call', 'view', 'host'];
+const SUPPORTED: Command[] = ['serve', 'serve-registry', 'init', 'validate', 'discover', 'call', 'view', 'host', 'daemon'];
 
 function parseArgs(argv: string[]): CLIOptions {
   const args = argv.slice(2);
@@ -87,6 +90,8 @@ function parseArgs(argv: string[]): CLIOptions {
   let positionalIndex = 1; // args[positionalIndex] is first positional after command
   const cmd = command as Command;
 
+  let daemonAction: DaemonAction | undefined;
+
   if (cmd === 'call') {
     if (args[1] && !args[1].startsWith('-')) {
       endpoint = args[1];
@@ -97,6 +102,14 @@ function parseArgs(argv: string[]): CLIOptions {
       contentType = args[1];
       positionalIndex = 2;
     }
+  } else if (cmd === 'daemon') {
+    const action = args[1];
+    if (!action || !['install', 'uninstall', 'status'].includes(action)) {
+      console.error('Usage: lavs-runtime daemon <install|uninstall|status> [--registry-dir <path>] [--port <n>]');
+      process.exit(1);
+    }
+    daemonAction = action as DaemonAction;
+    positionalIndex = 2;
   }
 
   for (let i = positionalIndex; i < args.length; i++) {
@@ -147,7 +160,7 @@ function parseArgs(argv: string[]): CLIOptions {
     process.exit(1);
   }
 
-  return { command: cmd, agentDir, agentId, projectPath, registryDirs, endpoint, input, contentType, port, noOpen };
+  return { command: cmd, agentDir, agentId, projectPath, registryDirs, endpoint, input, contentType, port, noOpen, daemonAction };
 }
 
 function printUsage(): void {
@@ -164,6 +177,7 @@ Commands:
   discover    List all LAVS bundles in a directory
   call        Call a LAVS endpoint directly (notifies running host if present)
   view        Open the LAVS standalone host in a browser tab
+  daemon      Manage LAVS host as a background daemon (macOS: launchd; Linux: systemd)
 
 Options (serve / init / validate):
   --agent-dir <path>       Agent directory with lavs.json (default: cwd)
@@ -209,6 +223,7 @@ async function main(): Promise<void> {
     case 'call':     await runCall(options);     break;
     case 'view':     await runView(options);     break;
     case 'host':     await runHost(options);     break;
+    case 'daemon':   await runDaemon(options);   break;
   }
 }
 
@@ -470,6 +485,172 @@ async function runHost(options: CLIOptions): Promise<void> {
   process.on('SIGINT',  async () => { await host.close(); process.exit(0); });
   process.on('SIGTERM', async () => { await host.close(); process.exit(0); });
   await new Promise<void>(() => {});
+}
+
+// ── daemon ──────────────────────────────────────────────────────────────────
+
+const DAEMON_LABEL = 'com.lavs.host';
+const DAEMON_PLIST_PATH = `${process.env.HOME}/Library/LaunchAgents/${DAEMON_LABEL}.plist`;
+
+/**
+ * Manage the LAVS host as a background daemon.
+ *
+ * macOS:  Generates a launchd plist in ~/Library/LaunchAgents/ and loads it.
+ * Linux:  Generates a systemd user service in ~/.config/systemd/user/ and enables it.
+ *
+ * Usage:
+ *   lavs-runtime daemon install [--registry-dir <path>] [--port <n>]
+ *   lavs-runtime daemon uninstall
+ *   lavs-runtime daemon status
+ */
+async function runDaemon(options: CLIOptions): Promise<void> {
+  const { daemonAction, registryDirs, port } = options;
+  const platform = process.platform;
+
+  if (platform === 'win32') {
+    console.error('[LAVS daemon] Windows is not yet supported. Use pm2 or NSSM instead:');
+    console.error('  pm2 start "node /path/to/lavs-runtime/dist/cli.js -- host --no-open" --name lavs-host');
+    process.exit(1);
+  }
+
+  if (platform === 'darwin') {
+    await runDaemonMac(daemonAction!, registryDirs, port);
+  } else {
+    await runDaemonLinux(daemonAction!, registryDirs, port);
+  }
+}
+
+/** Generate the launchd ProgramArguments array for the lavs host command. */
+function buildHostArgs(registryDirs: string[], port: number): string[] {
+  const cliJs = path.resolve(__filename, '../../dist/cli.js');
+  const args: string[] = [process.execPath, cliJs, 'host', '--no-open', '--port', String(port)];
+  for (const d of registryDirs) {
+    args.push('--registry-dir', d);
+  }
+  return args;
+}
+
+async function runDaemonMac(action: DaemonAction, registryDirs: string[], port: number): Promise<void> {
+  const { execSync } = await import('child_process');
+  const plistPath = DAEMON_PLIST_PATH;
+
+  if (action === 'install') {
+    const progArgs = buildHostArgs(registryDirs, port);
+    const argXml = progArgs.map((a) => `        <string>${a}</string>`).join('\n');
+    const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${DAEMON_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+${argXml}
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/lavs-host.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/lavs-host.err</string>
+</dict>
+</plist>`;
+
+    fs.mkdirSync(path.dirname(plistPath), { recursive: true });
+    fs.writeFileSync(plistPath, plist, 'utf-8');
+
+    // Unload existing instance if present (ignore errors)
+    try { execSync(`launchctl unload "${plistPath}" 2>/dev/null`, { stdio: 'ignore' }); } catch { /* ok */ }
+    execSync(`launchctl load "${plistPath}"`);
+
+    console.error(`[LAVS daemon] ✅ Installed and started.`);
+    console.error(`  plist: ${plistPath}`);
+    console.error(`  port:  ${port}`);
+    if (registryDirs.length) console.error(`  dirs:  ${registryDirs.join(', ')}`);
+    console.error(`  logs:  /tmp/lavs-host.log  (err: /tmp/lavs-host.err)`);
+    console.error(`  url:   http://localhost:${port}/`);
+    console.error(`\n  To stop:      lavs-runtime daemon uninstall`);
+    console.error(`  To view logs: tail -f /tmp/lavs-host.log`);
+
+  } else if (action === 'uninstall') {
+    if (!fs.existsSync(plistPath)) {
+      console.error(`[LAVS daemon] Not installed (no plist at ${plistPath}).`);
+      return;
+    }
+    try { execSync(`launchctl unload "${plistPath}"`); } catch { /* already unloaded */ }
+    fs.unlinkSync(plistPath);
+    console.error(`[LAVS daemon] ✅ Uninstalled.`);
+
+  } else if (action === 'status') {
+    try {
+      const out = execSync(`launchctl list "${DAEMON_LABEL}" 2>&1`).toString();
+      const running = out.includes('"PID"') || out.includes(DAEMON_LABEL);
+      console.error(`[LAVS daemon] ${running ? '✅ Running' : '⚠️  Loaded but not running'}`);
+      console.error(out.trim());
+    } catch {
+      console.error(`[LAVS daemon] ❌ Not running (service not loaded or not installed).`);
+      if (fs.existsSync(plistPath)) {
+        console.error(`  plist exists at ${plistPath} but is not loaded — try: lavs-runtime daemon install`);
+      }
+    }
+    // Show quick connectivity check
+    try {
+      const resp = await fetch(`http://127.0.0.1:${port}/api/discover`, { signal: AbortSignal.timeout(1000) });
+      if (resp.ok) {
+        const bundles = await resp.json() as any[];
+        console.error(`  Host at port ${port}: responding — ${bundles.length} bundle(s)`);
+      }
+    } catch { /* host not running */ }
+  }
+}
+
+async function runDaemonLinux(action: DaemonAction, registryDirs: string[], port: number): Promise<void> {
+  const { execSync } = await import('child_process');
+  const serviceDir = `${process.env.HOME}/.config/systemd/user`;
+  const serviceFile = `${serviceDir}/lavs-host.service`;
+
+  if (action === 'install') {
+    const progArgs = buildHostArgs(registryDirs, port);
+    const execStart = progArgs.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
+    const service = `[Unit]
+Description=LAVS Global Host
+After=network.target
+
+[Service]
+ExecStart=${execStart}
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/tmp/lavs-host.log
+StandardError=append:/tmp/lavs-host.err
+
+[Install]
+WantedBy=default.target
+`;
+    fs.mkdirSync(serviceDir, { recursive: true });
+    fs.writeFileSync(serviceFile, service, 'utf-8');
+    execSync('systemctl --user daemon-reload');
+    execSync('systemctl --user enable --now lavs-host');
+    console.error(`[LAVS daemon] ✅ Installed and started via systemd user service.`);
+    console.error(`  service: ${serviceFile}`);
+    console.error(`  logs:    journalctl --user -u lavs-host -f`);
+    console.error(`  url:     http://localhost:${port}/`);
+
+  } else if (action === 'uninstall') {
+    try { execSync('systemctl --user disable --now lavs-host'); } catch { /* ok */ }
+    if (fs.existsSync(serviceFile)) fs.unlinkSync(serviceFile);
+    try { execSync('systemctl --user daemon-reload'); } catch { /* ok */ }
+    console.error('[LAVS daemon] ✅ Uninstalled.');
+
+  } else if (action === 'status') {
+    try {
+      const out = execSync('systemctl --user status lavs-host 2>&1').toString();
+      console.error(out.trim());
+    } catch (e: any) {
+      console.error(`[LAVS daemon] Not running:\n${e.stdout?.toString() || ''}`);
+    }
+  }
 }
 
 /**
