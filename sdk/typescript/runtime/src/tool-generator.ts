@@ -15,6 +15,31 @@ import { ScriptHandler, FunctionHandler, HTTPHandler, MCPHandler, ExecutionConte
 import { HttpExecutor } from './http-executor';
 import { McpExecutor } from './mcp-executor';
 import path from 'path';
+import http from 'http';
+
+const GLOBAL_HOST_PORT = 7842;
+
+/**
+ * Fire-and-forget: notify the global LAVS host that a mutation happened
+ * so connected view iframes can refresh via SSE.
+ */
+function notifyGlobalHost(bundleName: string, endpointId: string, data: unknown): void {
+  try {
+    const body = JSON.stringify({ data });
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: GLOBAL_HOST_PORT,
+      path: `/api/notify/${encodeURIComponent(bundleName)}/${encodeURIComponent(endpointId)}`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    });
+    req.on('error', () => { /* host not running — silently ignore */ });
+    req.write(body);
+    req.end();
+  } catch {
+    // Ignore errors — host notification is best-effort
+  }
+}
 
 /**
  * Claude SDK tool definition
@@ -78,7 +103,7 @@ export class LAVSToolGenerator {
         tools.push(tool);
       }
 
-      console.log(`[LAVS] Generated ${tools.length} tools for agent ${agentId}`);
+      console.error(`[LAVS] Generated ${tools.length} tools for agent ${agentId}`);
       return tools;
     } catch (error: unknown) {
       // If no lavs.json, that's OK - just return empty array
@@ -134,7 +159,7 @@ export class LAVSToolGenerator {
 
     // Create executor function
     const execute: ToolExecutor = async (params: any) => {
-      console.log(`[LAVS] Executing tool ${toolName} with params:`, params);
+      console.error(`[LAVS] Executing tool ${toolName} with params:`, params);
 
       // 1. Validate input against schema (pass manifest types for $ref resolution)
       validator.assertValidInput(endpoint, params, manifestTypes);
@@ -210,7 +235,14 @@ export class LAVSToolGenerator {
         }
       }
 
-      // 6. Validate output against schema (non-blocking: warn on mismatch, still return data)
+      // 6. Notify global host after mutations so views auto-refresh (fire-and-forget).
+      // Skip when called from within the host itself (LAVS_HOST_CALLER=1) to avoid
+      // double-broadcasting — the host's /api/call handler broadcasts directly.
+      if (endpoint.method === 'mutation' && !process.env.LAVS_HOST_CALLER) {
+        notifyGlobalHost(manifest.name, endpoint.id, result);
+      }
+
+      // 7. Validate output against schema (non-blocking: warn on mismatch, still return data)
       try {
         validator.assertValidOutput(endpoint, result, manifestTypes);
       } catch (validationError: any) {

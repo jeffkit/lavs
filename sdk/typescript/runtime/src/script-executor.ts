@@ -26,7 +26,7 @@ export class ScriptExecutor {
     context: ExecutionContext
   ): Promise<any> {
     const startTime = Date.now();
-    console.log(`[LAVS] Executing script for ${context.endpointId}`, {
+    console.error(`[LAVS] Executing script for ${context.endpointId}`, {
       command: handler.command,
       args: handler.args,
       input: handler.input,
@@ -65,7 +65,7 @@ export class ScriptExecutor {
       const result = await this.captureOutput(proc, timeout, context.endpointId);
 
       const duration = Date.now() - startTime;
-      console.log(`[LAVS] Script completed in ${duration}ms`, {
+      console.error(`[LAVS] Script completed in ${duration}ms`, {
         endpointId: context.endpointId,
         exitCode: result.exitCode,
       });
@@ -308,7 +308,7 @@ export class ScriptExecutor {
     proc.stderr?.on('data', (data) => {
       const text = data.toString();
       stderr += text;
-      console.log(`[LAVS:${endpointId}] stderr:`, text);
+      console.error(`[LAVS:${endpointId}] stderr:`, text);
     });
 
     // Wait for process to exit

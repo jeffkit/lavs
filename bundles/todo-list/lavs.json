@@ -1,0 +1,139 @@
+{
+  "lavs": "1.0",
+  "name": "todo-list",
+  "contentType": "lavs/todo-list",
+  "version": "1.0.0",
+  "description": "Interactive todo list with AI assistance",
+  "endpoints": [
+    {
+      "id": "listTodos",
+      "method": "query",
+      "description": "List all todos, optionally filtered by done status",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/list.js"],
+        "input": "args"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "done": { "type": "boolean", "description": "Filter by completion status" }
+          }
+        },
+        "output": {
+          "type": "array",
+          "items": { "$ref": "#/types/Todo" }
+        }
+      }
+    },
+    {
+      "id": "addTodo",
+      "method": "mutation",
+      "description": "Add a new todo item",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/add.js"],
+        "input": "stdin"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["text"],
+          "properties": {
+            "text":     { "type": "string",  "description": "Todo text" },
+            "priority": { "type": "integer", "minimum": 1, "maximum": 3, "description": "1=high 2=medium 3=low" },
+            "tags":     { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "output": { "$ref": "#/types/Todo" }
+      }
+    },
+    {
+      "id": "toggleTodo",
+      "method": "mutation",
+      "description": "Toggle a todo's done status",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/toggle.js"],
+        "input": "stdin"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id":   { "type": "integer" },
+            "done": { "type": "boolean", "description": "Set explicit state (omit to toggle)" }
+          }
+        },
+        "output": { "$ref": "#/types/Todo" }
+      }
+    },
+    {
+      "id": "deleteTodo",
+      "method": "mutation",
+      "description": "Delete a todo by id",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/delete.js"],
+        "input": "stdin"
+      },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": { "type": "integer" }
+          }
+        },
+        "output": { "type": "object", "properties": { "deleted": { "type": "boolean" } } }
+      }
+    },
+    {
+      "id": "clearDone",
+      "method": "mutation",
+      "description": "Delete all completed todos",
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": ["scripts/clear-done.js"]
+      },
+      "schema": {
+        "output": {
+          "type": "object",
+          "properties": { "deleted": { "type": "integer" } }
+        }
+      }
+    }
+  ],
+  "view": {
+    "component": {
+      "type": "local",
+      "path": "./view/index.html"
+    },
+    "fallback": "table"
+  },
+  "types": {
+    "Todo": {
+      "type": "object",
+      "required": ["id", "text", "done"],
+      "properties": {
+        "id":        { "type": "integer" },
+        "text":      { "type": "string" },
+        "done":      { "type": "boolean" },
+        "priority":  { "type": "integer", "minimum": 1, "maximum": 3 },
+        "tags":      { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "permissions": {
+    "fileAccess": ["./data/**/*.json"],
+    "maxExecutionTime": 5000
+  }
+}

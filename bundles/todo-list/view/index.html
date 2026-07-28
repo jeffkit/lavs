@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Todo List</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --done-text: #94a3b8;
+      --danger: #ef4444;
+      --p1: #ef4444;
+      --p2: #f59e0b;
+      --p3: #10b981;
+      --radius: 10px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1117;
+        --surface: #1a1d27;
+        --border: #2a2d3a;
+        --text: #e2e8f0;
+        --text-muted: #64748b;
+        --done-text: #475569;
+      }
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    .app-header {
+      padding: 16px 20px 12px;
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .app-header h1 { font-size: 18px; font-weight: 700; }
+    .app-header .count {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
+
+    /* ── Filters ── */
+    .filters {
+      display: flex;
+      gap: 6px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .filter-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 4px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.12s;
+    }
+    .filter-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .filter-btn:hover:not(.active) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* ── Add form ── */
+    .add-form {
+      display: flex;
+      gap: 8px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .add-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.12s;
+    }
+    .add-input:focus { border-color: var(--accent); }
+    .add-input::placeholder { color: var(--text-muted); }
+    .priority-select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      cursor: pointer;
+      outline: none;
+    }
+    .add-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: background 0.12s;
+    }
+    .add-btn:hover { background: var(--accent-hover); }
+
+    /* ── Todo list ── */
+    .todo-list {
+      flex: 1;
+      padding: 12px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .todo-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      transition: box-shadow 0.12s, opacity 0.2s;
+    }
+    .todo-item:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .todo-item.done { opacity: 0.65; }
+
+    .todo-check {
+      width: 18px; height: 18px;
+      border: 2px solid var(--border);
+      border-radius: 5px;
+      cursor: pointer;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color 0.12s, background 0.12s;
+      font-size: 11px;
+    }
+    .todo-item.done .todo-check {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .todo-check:hover { border-color: var(--accent); }
+
+    .priority-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .p1 { background: var(--p1); }
+    .p2 { background: var(--p2); }
+    .p3 { background: var(--p3); }
+
+    .todo-text {
+      flex: 1;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .todo-item.done .todo-text {
+      text-decoration: line-through;
+      color: var(--done-text);
+    }
+
+    .todo-tags {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .tag {
+      background: rgba(99,102,241,0.1);
+      color: var(--accent);
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-weight: 500;
+    }
+
+    .todo-delete {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.12s, color 0.12s;
+    }
+    .todo-item:hover .todo-delete { opacity: 1; }
+    .todo-delete:hover { color: var(--danger); }
+
+    /* ── Footer ── */
+    .footer {
+      padding: 10px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .clear-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      transition: color 0.12s;
+    }
+    .clear-btn:hover { color: var(--danger); }
+
+    /* ── States ── */
+    .empty-state {
+      text-align: center;
+      color: var(--text-muted);
+      padding: 48px 20px;
+    }
+    .empty-state .icon { font-size: 36px; margin-bottom: 12px; }
+    .empty-state p { line-height: 1.6; }
+    .loading { text-align: center; color: var(--text-muted); padding: 40px; }
+  </style>
+</head>
+<body>
+
+  <div class="app-header">
+    <h1>✅ Todo List</h1>
+    <span class="count" id="countLabel"></span>
+  </div>
+
+  <div class="filters">
+    <button class="filter-btn active" onclick="setFilter('all')" data-filter="all">All</button>
+    <button class="filter-btn" onclick="setFilter('active')" data-filter="active">Active</button>
+    <button class="filter-btn" onclick="setFilter('done')" data-filter="done">Done</button>
+  </div>
+
+  <div class="add-form">
+    <input
+      class="add-input"
+      id="addInput"
+      type="text"
+      placeholder="Add a todo… (press Enter)"
+      onkeydown="if(event.key==='Enter') addTodo()"
+    />
+    <select class="priority-select" id="prioritySelect">
+      <option value="1">🔴 High</option>
+      <option value="2" selected>🟡 Medium</option>
+      <option value="3">🟢 Low</option>
+    </select>
+    <button class="add-btn" onclick="addTodo()">Add</button>
+  </div>
+
+  <div class="todo-list" id="todoList">
+    <div class="loading">Loading…</div>
+  </div>
+
+  <div class="footer">
+    <span id="footerStatus"></span>
+    <button class="clear-btn" onclick="clearDone()">Clear done</button>
+  </div>
+
+  <script>
+    // ── LAVS postMessage bridge ──
+    let callId = 0;
+    const pending = new Map();
+
+    function lavs(endpoint, input) {
+      return new Promise((resolve, reject) => {
+        const id = String(++callId);
+        pending.set(id, { resolve, reject });
+        window.parent.postMessage({ type: 'lavs-call', id, endpoint, input: input || {} }, '*');
+      });
+    }
+
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (d.type === 'lavs-result' && pending.has(d.id)) {
+        pending.get(d.id).resolve(d.result);
+        pending.delete(d.id);
+      } else if (d.type === 'lavs-error' && pending.has(d.id)) {
+        pending.get(d.id).reject(new Error(d.error || 'Unknown error'));
+        pending.delete(d.id);
+      } else if (d.type === 'lavs-agent-action') {
+        // Agent performed an action — refresh the list
+        loadTodos();
+      }
+    });
+
+    // ── State ──
+    let todos = [];
+    let filter = 'all';
+
+    function setFilter(f) {
+      filter = f;
+      document.querySelectorAll('.filter-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.filter === f);
+      });
+      render();
+    }
+
+    // ── Load ──
+    async function loadTodos() {
+      try {
+        todos = await lavs('listTodos');
+        render();
+      } catch (err) {
+        document.getElementById('todoList').innerHTML =
+          `<div class="empty-state"><div class="icon">⚠️</div><p>${err.message}</p></div>`;
+      }
+    }
+
+    // ── Render ──
+    function render() {
+      const list = document.getElementById('todoList');
+      let visible = todos;
+      if (filter === 'active') visible = todos.filter(t => !t.done);
+      if (filter === 'done')   visible = todos.filter(t => t.done);
+
+      const active = todos.filter(t => !t.done).length;
+      const total  = todos.length;
+      document.getElementById('countLabel').textContent =
+        `${active} remaining / ${total} total`;
+      document.getElementById('footerStatus').textContent =
+        filter === 'all' ? `${total} items` : `${visible.length} shown`;
+
+      if (!visible.length) {
+        const msgs = {
+          all:    ['📝', 'No todos yet. Add one above or ask the AI!'],
+          active: ['🎉', 'All caught up!'],
+          done:   ['⬜', 'Nothing done yet.'],
+        };
+        const [icon, msg] = msgs[filter];
+        list.innerHTML = `<div class="empty-state"><div class="icon">${icon}</div><p>${msg}</p></div>`;
+        return;
+      }
+
+      const pColors = { 1: 'p1', 2: 'p2', 3: 'p3' };
+      list.innerHTML = visible.map(t => `
+        <div class="todo-item ${t.done ? 'done' : ''}" data-id="${t.id}">
+          <div class="todo-check" onclick="toggle(${t.id})">${t.done ? '✓' : ''}</div>
+          <div class="priority-dot ${pColors[t.priority] || 'p2'}"></div>
+          <div class="todo-text">${escHtml(t.text)}</div>
+          ${(t.tags && t.tags.length)
+            ? `<div class="todo-tags">${t.tags.map(tag => `<span class="tag">${escHtml(tag)}</span>`).join('')}</div>`
+            : ''}
+          <button class="todo-delete" onclick="deleteTodo(${t.id})" title="Delete">✕</button>
+        </div>
+      `).join('');
+    }
+
+    // ── Actions ──
+    async function addTodo() {
+      const input = document.getElementById('addInput');
+      const priority = parseInt(document.getElementById('prioritySelect').value, 10);
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      try {
+        const newTodo = await lavs('addTodo', { text, priority });
+        todos.unshift(newTodo);
+        render();
+      } catch (err) {
+        alert('Failed to add: ' + err.message);
+      }
+    }
+
+    async function toggle(id) {
+      try {
+        const updated = await lavs('toggleTodo', { id });
+        const idx = todos.findIndex(t => t.id === id);
+        if (idx !== -1) todos[idx] = updated;
+        render();
+      } catch (err) {
+        alert('Failed to toggle: ' + err.message);
+      }
+    }
+
+    async function deleteTodo(id) {
+      try {
+        await lavs('deleteTodo', { id });
+        todos = todos.filter(t => t.id !== id);
+        render();
+      } catch (err) {
+        alert('Failed to delete: ' + err.message);
+      }
+    }
+
+    async function clearDone() {
+      const doneCount = todos.filter(t => t.done).length;
+      if (!doneCount) return;
+      if (!confirm(`Delete ${doneCount} completed item(s)?`)) return;
+      try {
+        await lavs('clearDone');
+        todos = todos.filter(t => !t.done);
+        render();
+      } catch (err) {
+        alert('Failed to clear: ' + err.message);
+      }
+    }
+
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ── Init ──
+    loadTodos();
+  </script>
+</body>
+</html>

@@ -18,3 +18,4 @@ __pycache__/
 Thumbs.db
 
 # Lockfile is managed per workspace
+bundles/*/data/*.json

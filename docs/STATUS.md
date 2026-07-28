@@ -4,6 +4,24 @@
 > built versus planned. Written after a code audit on 2026-07-15, when the
 > repo was found to be drifting ahead of its own docs (SDKs were described as
 > "to be extracted" though they already live here).
+> Last updated: 2026-07-28 (repositioning to CLI-first + standalone host; MVP roadmap added)
+
+## Repositioning (2026-07-28)
+
+LAVS has repositioned from "an agent's face" to **a CLI-first structured-data visualization layer**:
+
+| | v1.0 framing | Current framing |
+|---|---|---|
+| Primary abstraction | An **agent**'s view | A **content-type**'s view bundle |
+| Host dependency | AgentStudio (required) | Standalone lightweight host (any browser tab) |
+| Agent interface | MCP tools (`lavs_xxx`) | **CLI-first** + SKILL.md; MCP optional |
+| Target users | AgentStudio users | Any agent user, any host |
+
+**MVP priority (Phase 1):** `lavs view` command — starts a local HTTP host + opens a browser tab. Agent interacts via `lavs call <endpoint>` CLI; view auto-refreshes via SSE. No MCP required.
+
+**Official bundles (Phase 2):** `lavs/todo-list`, `lavs/daily-note`, `lavs/data-table` as showcase bundles distributed with the package.
+
+---
 
 ## TL;DR
 
@@ -69,6 +87,39 @@ View UI  ── postMessage('lavs-call') ─┘        │
 `lavs-runtime serve` additionally starts an MCP server (stdio) that exposes every
 query/mutation endpoint as an MCP tool named `lavs_<endpointId>`, so any
 MCP-compatible client (Claude Code, Cursor, etc.) can drive a LAVS agent.
+
+## MVP Roadmap (CLI-first + standalone host)
+
+### Phase 1 — Standalone Host + CLI (current priority)
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `lavs discover [--registry-dir .]` | ✅ Done | Scan dir for lavs.json files, output bundle info |
+| `lavs call <endpoint> [--input '{}']` | ✅ Done | Direct CLI invocation; stdout is clean JSON for piping |
+| `lavs view [contentType]` | ✅ Done | Start local HTTP host + open browser tab |
+| Standalone host UI | ✅ Done | Dark-mode UI: left sidebar bundle list + right iframe renderer |
+| Host SSE bridge | ✅ Done | Push agent-action events into active iframe; view auto-refreshes |
+| `SKILL.md` for lavs | ✅ Done | Root-level SKILL.md instruct agents when/how to use lavs CLI |
+
+### Phase 2 — dispatch mode + official bundles
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| dispatch algorithm in host | ⬜ Planned | v1.1 spec written, not yet implemented |
+| Official bundle: `lavs/todo-list` | ✅ Done | Full CRUD (add/toggle/delete/clearDone) + priority + tags + view |
+| Official bundle: `lavs/daily-note` | ⬜ Planned | |
+| Official bundle: `lavs/data-table` | ⬜ Planned | Generic tabular data view |
+| npm publish `@lavs/runtime` + `@lavs/client` | ⬜ Planned | |
+
+### Phase 3 — ecosystem
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Third-party bundle publishing guide | ⬜ Planned | |
+| Electron/Tauri standalone app (optional upgrade) | ⬜ Planned | If browser tab UX is insufficient |
+| Python runtime dispatch layer | ⬜ Planned | |
+
+---
 
 ## Known gaps / honest caveats
 
