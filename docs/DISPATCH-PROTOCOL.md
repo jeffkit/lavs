@@ -1,9 +1,26 @@
 # LAVS View Dispatch Protocol — Design Draft
 
-> Status: **Draft (proposal, not yet spec)**  
-> Date: 2026-07-16  
+> Status: **Draft (proposal, not yet spec)** — partly superseded by SPEC §11  
+> Date: 2026-07-16 (original) · 2026-07-29 (CLI-first repositioning note)  
 > Authors: LAVS  
-> Related: `docs/SPEC.md` (v1.0), `docs/PROTOCOL-ANALYSIS.md`
+> Related: `docs/SPEC.md` §11 (normative), `docs/PROTOCOL-ANALYSIS.md`
+
+> **⚠️ Note (2026-07-29):** This draft was written when LAVS targeted
+> AgentStudio-style **conversational hosts**. Its core concepts (content-type
+> as primary abstraction, view bundle portability, two host modes) were adopted
+> into SPEC §11 and **remain valid**. However, two parts assumed a conversational
+> container that the current CLI-first standalone host does not have:
+>
+> 1. **Artifact dispatch** (§4.1 trigger #2, §4.2 envelope) — the "agent emits
+>    a typed artifact in chat" path. The standalone host has no "chat"; CLI/MCP
+>    calls are tool-result dispatch (§4.1 trigger #1), which is the only
+>    normative v1.1 path. Artifact dispatch is retained as a future extension.
+> 2. **Per-`(conversationId, contentType)` data scoping** (§4.5) — there is no
+>    `conversationId` in CLI-first mode. Data scoping is **per-bundle**
+>    (`<bundleDir>/data/`), matching the existing implementation.
+>
+> The body below is preserved as historical design record. For normative
+> behavior, see `docs/SPEC.md` §11.
 
 This document proposes the one protocol piece that LAVS v1.0 is missing and
 that determines whether general-purpose desktop agents can adopt LAVS: a

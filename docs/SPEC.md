@@ -9,7 +9,7 @@ LAVS (Local Agent View Service) is a standard protocol that enables local AI age
 ## Status of This Document
 
 This document is a draft specification for LAVS. Version 1.1 adds the
-**View Dispatch Protocol** (multiple views per conversation, dispatched by
+**View Dispatch Protocol** (multiple views per host session, dispatched by
 content-type) as a normative, backward-compatible extension. v1.0 behavior is
 preserved as the "pinned" host mode. It is subject to change based on community
 feedback and implementation experience.
@@ -1114,25 +1114,39 @@ Possible future additions:
 ## 11. View Dispatch Protocol (v1.1)
 
 This section is normative in v1.1. It specifies how a host renders the right
-view bundle for a given piece of structured data inside a single conversation
+view bundle for a given piece of structured data inside a single host session
 that may span many content-types. v1.0 behavior is the `pinned` host mode
 (§11.4) and is unchanged.
+
+> **Note (2026-07-29):** §11 was originally drafted when LAVS targeted
+> AgentStudio-style conversational hosts. LAVS has since repositioned to
+> CLI-first. The **tool-result dispatch** path (§11.1.1) is the normative
+> v1.1 mechanism — it is the only dispatch path the standalone host
+> implements. The **artifact dispatch** path (§11.1.2) remains in the spec
+> as a future extension for conversational host integration; it is not
+> required for v1.1 conformance. Data scoping is per-bundle
+> (`<bundleDir>/data/`), not per-conversation; see §11.5.
 
 ### 11.1 Dispatch triggers
 
 A host renders a view in two situations. Both resolve to the same view bundle;
 they differ in how the content-type is discovered.
 
-1. **Tool-result dispatch.** The agent calls a LAVS endpoint tool
-   (`lavs_<endpoint>`). The host knows which bundle the tool belongs to (by the
+1. **Tool-result dispatch (normative in v1.1).** The agent calls a LAVS endpoint
+   tool (`lavs_<endpoint>`) — either via CLI (`lavs call --agent-dir <bundle>`)
+   or MCP (`lavs_call`). The host knows which bundle the tool belongs to (by the
    tool's owning manifest). It renders that bundle's view with the tool result.
-   No envelope is needed — the content-type is implied by the tool.
+   No envelope is needed — the content-type is implied by the tool. **This is
+   the only dispatch path the standalone host implements; CLI-first adoption
+   relies on it exclusively.**
 
-2. **Artifact dispatch.** The agent emits a structured artifact in chat (not via
-   a LAVS op). The host reads the artifact's `contentType`, looks up the
-   registry, and renders the matching view. Requires the envelope (§11.2).
+2. **Artifact dispatch (future extension).** The agent emits a structured
+   artifact in a conversational host (not via a LAVS op). The host reads the
+   artifact's `contentType`, looks up the registry, and renders the matching
+   view. Requires the envelope (§11.2). **Not required for v1.1 conformance;
+   reserved for conversational host integration.**
 
-### 11.2 Artifact envelope
+### 11.2 Artifact envelope (future — §11.1.2 only)
 
 A typed artifact the agent/host exchange. Minimal, JSON-RPC-friendly:
 
@@ -1189,44 +1203,46 @@ The host discovers bundles and builds `content-type → bundle`.
 - **pinned** — load exactly one bundle; the agent operates within one
   content-type. Equivalent to v1.0. `contentType` is declared but unused for
   dispatch. Data scope = `<agentDir>/data`.
-- **dispatch** — load a registry; render the matching view per artifact; many
-  views per conversation. Data scope = per `(conversationId, contentType)`
+- **dispatch** — load a registry; render the matching view per bundle; many
+  views coexist in one host session. Data scope = per-bundle (`<bundleDir>/data`)
   (§11.5).
 
 ### 11.5 Dispatch algorithm and data scope
 
 ```
-on typed artifact A (or tool result from bundle B):
-  ct = A.contentType          // or B's contentType for tool-result dispatch
+on tool result from bundle B:
+  ct = B.contentType
   bundle = registry[ct]
   if !bundle:
       render fallback (list|table|json) or skip         // §11.7
       return
-  scope = dataScope(conversationId, ct)                  // §11.5
-  iframe = mount bundle.view.component in sandboxed iframe
-  inject LAVSClient bound to (bundle, scope)             // routes lavs-call
-  if A.init: view calls A.init.endpoint to bootstrap
-  else if A.data: view renders A.data directly
-  // SSE subscriptions from bundle endpoints forward into the iframe
+  scope = bundleDir/data
+  iframe = mount bundle.view.component in sandboxed iframe (pooled)
+  bind iframe to (bundle, scope)                         // routes lavs-call
+  // SSE agent-action events route into the iframe only when the action's
+  // contentType matches the iframe's bound bundle
 ```
 
 - Pinned mode: `scope = <agentDir>/data` (v1.0 behavior, unchanged).
-- Dispatch mode: `scope = <registryDir>/<bundleDir>/data/<conversationId>/`.
-  Each `(conversation, contentType)` pair gets an isolated directory.
-  `permissions.fileAccess` globs resolve against `scope`.
-- The container routes every `lavs-call` from that iframe to the **bound
-  bundle's** endpoints, scoped to `scope`. `lavs-agent-action` notifications
-  are routed into the iframe only when the action's `contentType` matches the
-  iframe's bound bundle (§7.4.5).
+- Dispatch mode: `scope = <bundleDir>/data/`. Each bundle gets an isolated
+  data directory. `permissions.fileAccess` globs resolve against `scope`.
+- The host pools one iframe per opened bundle (switching bundles hides, not
+  destroys, the frame — view state survives). The host routes every `lavs-call`
+  from an iframe to the **bound bundle's** endpoints (resolved from
+  `event.source`). `lavs-agent-action` notifications are routed into the iframe
+  only when the action's `contentType` matches the iframe's bound bundle.
+- The artifact-dispatch variant (`on typed artifact A`) and its
+  per-`(conversationId, contentType)` scoping are a future extension (§11.1.2)
+  and not part of the standalone host's v1.1 behavior.
 
 ### 11.6 Instance scoping (deferred)
 
-v1.1 keys data by `(conversationId, contentType)` — one data store per
-content-type per conversation. Multiple artifacts of the *same* content-type in
-one conversation share that store. Multiple *instances* of the same
-content-type (two independent todo lists in one thread) is deferred; the
-envelope reserves no `instanceId` field. If needed later it is added as
-optional and endpoints opt in to receiving it.
+v1.1 keys data by content-type (one data store per bundle) — one data store
+per content-type per host session. Multiple tool calls against the *same*
+bundle in one session share that store. Multiple *instances* of the same
+content-type (two independent todo lists) is deferred; the envelope reserves no
+`instanceId` field. If needed later it is added as optional and endpoints opt
+in to receiving it.
 
 ### 11.7 Fallback rendering (normative in v1.1)
 

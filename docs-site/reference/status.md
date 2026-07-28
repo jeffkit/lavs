@@ -53,7 +53,7 @@ LAVS 已从「Agent 的脸」重新定位为 **CLI 优先的结构化数据可�
 
 | 功能 | 状态 |
 |---|---|
-| dispatch 算法 | ❌ 计划中 |
+| tool-result dispatch（iframe 池 + SSE 路由） | ✅ |
 | 官方 bundle `lavs/todo-list` | ✅ |
 | 官方 bundle `lavs/daily-note` | ❌ 计划中 |
 | 官方 bundle `lavs/data-table` | ❌ 计划中 |
