@@ -213,7 +213,6 @@ export function buildHostUI({ port }: HostUIOptions): string {
     .view-toolbar .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
 
     .view-frame-wrap { flex: 1; position: relative; overflow: hidden; }
-    #viewFrame { width: 100%; height: 100%; border: none; background: #fff; }
     .empty-state {
       position: absolute; inset: 0;
       display: flex; flex-direction: column;
@@ -289,7 +288,9 @@ export function buildHostUI({ port }: HostUIOptions): string {
             <code>http://localhost:${port}/?dir=/your/bundles/path</code>
           </div>
         </div>
-        <iframe id="viewFrame" style="display:none" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+        <!-- View iframes are created dynamically and pooled here (one per bundle),
+             so switching bundles preserves each view's state. -->
+        <div id="viewContainer" style="width:100%;height:100%"></div>
       </div>
     </main>
   </div>
@@ -298,6 +299,13 @@ export function buildHostUI({ port }: HostUIOptions): string {
     const PORT = ${port};
     let state = { dirs: [], bundles: [] };
     let activeBundleName = null;
+
+    // iframe pool: one persistent iframe per opened bundle, so switching bundles
+    // preserves each view's state (scroll, in-flight requests, JS state).
+    // bundleFrames: bundleName → <iframe> element (the pooled frames)
+    // sourceToBundle: contentWindow → bundleName (reverse lookup for postMessage replies)
+    const bundleFrames = new Map();
+    const sourceToBundle = new Map();
 
     // ── Helpers ──
     function escHtml(s) {
@@ -399,6 +407,9 @@ export function buildHostUI({ port }: HostUIOptions): string {
     }
 
     // ── Select bundle ──
+    // Switches the visible view to the named bundle. Iframes are pooled: once
+    // created for a bundle, they are hidden (not destroyed) so the view's state
+    // survives switching back and forth.
     function selectBundle(name) {
       const bundle = state.bundles.find(b => b.name === name);
       if (!bundle) return;
@@ -411,13 +422,30 @@ export function buildHostUI({ port }: HostUIOptions): string {
       document.getElementById('activeEndpointCount').textContent =
         \`\${bundle.endpoints.length} endpoint\${bundle.endpoints.length !== 1 ? 's' : ''}\`;
 
-      const frame = document.getElementById('viewFrame');
       const emptyState = document.getElementById('emptyState');
+      const container = document.getElementById('viewContainer');
 
       if (bundle.hasView) {
         emptyState.style.display = 'none';
+        // Hide all pooled frames, then show (or create) the selected bundle's frame.
+        for (const [bundleName, frame] of bundleFrames) {
+          frame.style.display = (bundleName === name) ? 'block' : 'none';
+        }
+        let frame = bundleFrames.get(name);
+        if (!frame) {
+          frame = document.createElement('iframe');
+          frame.style.cssText = 'width:100%;height:100%;border:none;background:#fff;display:block';
+          frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
+          frame.setAttribute('data-bundle', name);
+          frame.src = \`/view/\${encodeURIComponent(name)}/\${bundle.viewEntry || 'view/index.html'}\`;
+          container.appendChild(frame);
+          bundleFrames.set(name, frame);
+          // Track contentWindow → bundleName once the frame has loaded its content.
+          frame.addEventListener('load', () => {
+            if (frame.contentWindow) sourceToBundle.set(frame.contentWindow, name);
+          });
+        }
         frame.style.display = 'block';
-        frame.src = \`/view/\${encodeURIComponent(name)}/\${bundle.viewEntry || 'view/index.html'}\`;
       } else {
         emptyState.style.display = 'flex';
         emptyState.innerHTML = \`
@@ -425,13 +453,12 @@ export function buildHostUI({ port }: HostUIOptions): string {
           <p><b>\${escHtml(name)}</b> has no view component.</p>
           <p>Endpoints: \${bundle.endpoints.map(e => '<code>' + escHtml(e.id) + '</code>').join(', ')}</p>
         \`;
-        frame.style.display = 'none';
       }
     }
 
     function refreshView() {
-      const frame = document.getElementById('viewFrame');
-      if (frame.src) { const s = frame.src; frame.src = ''; frame.src = s; }
+      const frame = bundleFrames.get(activeBundleName);
+      if (frame && frame.src) { const s = frame.src; frame.src = ''; frame.src = s; }
     }
 
     // ── Add dir form ──
@@ -457,29 +484,32 @@ export function buildHostUI({ port }: HostUIOptions): string {
     });
 
     // ── postMessage bridge ──
+    // Routes lavs-call from any pooled iframe to /api/call/:bundle/:endpoint.
+    // The bundle name is resolved from event.source (the sending iframe's
+    // contentWindow), so each coexisting view calls its own bundle's endpoints.
     window.addEventListener('message', async (event) => {
       if (!event.data || event.data.type !== 'lavs-call') return;
       const { id, endpoint, params, input } = event.data;
-      if (!activeBundleName) return;
+      const source = event.source;
+      const bundleName = source ? sourceToBundle.get(source) : null;
+      if (!bundleName) return;
 
       try {
         const resp = await fetch(
-          \`/api/call/\${encodeURIComponent(activeBundleName)}/\${encodeURIComponent(endpoint)}\`,
+          \`/api/call/\${encodeURIComponent(bundleName)}/\${encodeURIComponent(endpoint)}\`,
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params ?? input ?? {}) }
         );
         const data = await resp.json();
-        const frame = document.getElementById('viewFrame');
-        if (frame.contentWindow) {
-          frame.contentWindow.postMessage(
+        if (source) {
+          source.postMessage(
             resp.ok ? { type: 'lavs-result', id, result: data.result }
                     : { type: 'lavs-error', id, error: data.error },
             '*'
           );
         }
       } catch (err) {
-        const frame = document.getElementById('viewFrame');
-        if (frame.contentWindow) {
-          frame.contentWindow.postMessage({ type: 'lavs-error', id, error: String(err) }, '*');
+        if (source) {
+          source.postMessage({ type: 'lavs-error', id, error: String(err) }, '*');
         }
       }
     });
@@ -494,8 +524,15 @@ export function buildHostUI({ port }: HostUIOptions): string {
       es.addEventListener('agent-action', (e) => {
         let payload;
         try { payload = JSON.parse(e.data); } catch { return; }
-        const frame = document.getElementById('viewFrame');
-        if (frame.style.display !== 'none' && frame.contentWindow) {
+        // Route the event to the bundle whose contentType matches — NOT to
+        // whatever iframe happens to be visible. A mutation in bundle A must
+        // only refresh bundle A's view, even if bundle B is currently on top.
+        const ct = payload.action && payload.action.contentType;
+        if (!ct) return;
+        const targetBundle = state.bundles.find(b => b.contentType === ct);
+        if (!targetBundle) return;
+        const frame = bundleFrames.get(targetBundle.name);
+        if (frame && frame.contentWindow) {
           frame.contentWindow.postMessage(payload, '*');
         }
       });
