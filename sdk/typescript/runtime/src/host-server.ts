@@ -94,14 +94,19 @@ export async function discoverBundles(registryDir: string): Promise<BundleInfo[]
 
 /**
  * Resolve the view entry file for a manifest.
- * Returns a relative path within the bundle dir, or undefined if no view.
+ * Returns a relative path within the bundle dir (e.g. "view/index.html"),
+ * or undefined if no view. The loader resolves manifest paths to absolute
+ * form for internal use; here we convert back to a bundle-relative path so
+ * /api/discover does not leak absolute server filesystem paths to clients.
  */
 function resolveViewEntry(manifest: LAVSManifest, bundleDir: string): string | undefined {
   if (!manifest.view?.component) return undefined;
   const comp = manifest.view.component as any;
   if (comp.type === 'local' && comp.path) {
     const abs = path.resolve(bundleDir, comp.path);
-    if (fs.existsSync(abs)) return comp.path;
+    if (fs.existsSync(abs)) {
+      return path.relative(bundleDir, abs);
+    }
   }
   return undefined;
 }

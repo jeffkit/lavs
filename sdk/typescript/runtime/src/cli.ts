@@ -379,42 +379,14 @@ async function runCall(options: CLIOptions): Promise<void> {
 
     const result = await tool.execute(input);
 
-    // Print result to stdout (for piping / script use)
+    // Print result to stdout (for piping / script use).
+    // Host notification is handled inside tool-generator's execute (notifyGlobalHost),
+    // which covers CLI / MCP / host paths uniformly — no need to notify again here.
     console.log(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
-
-    // Notify the running host server (best-effort, fire-and-forget)
-    await notifyHostServer(options.port, agentId, endpoint, result);
 
   } catch (error: any) {
     console.error(`[LAVS] Call failed: ${error.message}`);
     process.exit(1);
-  }
-}
-
-/**
- * Notify the running host server that an agent action occurred.
- * Best-effort: silently ignored if the host server is not running.
- */
-async function notifyHostServer(
-  port: number,
-  bundleName: string,
-  endpointId: string,
-  result: unknown
-): Promise<void> {
-  try {
-    const body = JSON.stringify({ result });
-    const url = `http://127.0.0.1:${port}/api/notify/${encodeURIComponent(bundleName)}/${encodeURIComponent(endpointId)}`;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 1000);
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-      signal: ctrl.signal,
-    });
-    clearTimeout(timer);
-  } catch {
-    // Silently ignore: host may not be running
   }
 }
 
