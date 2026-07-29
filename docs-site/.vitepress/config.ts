@@ -25,6 +25,7 @@ export default defineConfig({
       { text: '指南', link: '/guide/quick-start' },
       { text: '协议', link: '/spec/overview' },
       { text: '参考', link: '/reference/manifest' },
+      { text: 'Bundle 注册表', link: '/guide/registry' },
       { text: 'GitHub', link: 'https://github.com/jeffkit/lavs' },
     ],
 
@@ -43,6 +44,7 @@ export default defineConfig({
           text: 'Bundle',
           items: [
             { text: '编写自己的 Bundle', link: '/guide/create-bundle' },
+            { text: 'Bundle 注册表', link: '/guide/registry' },
           ],
         },
       ],

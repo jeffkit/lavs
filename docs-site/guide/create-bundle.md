@@ -222,13 +222,61 @@ lavs view --registry-dir ./bundles          # 多 bundle（含你的）
 
 ## 发布
 
-Bundle 目前通过 git 仓库分发。推荐做法：
+### 方式一：npm 包（推荐）
+
+把 bundle 以 npm 包形式发布，用户无需 clone，直接安装即用。
+
+**1. 初始化 npm 包**
+
+在 bundle 目录创建 `package.json`：
+
+```json
+{
+  "name": "lavs-bundle-<vendor>-<name>",
+  "version": "1.0.0",
+  "description": "一句话介绍",
+  "main": "lavs.json",
+  "files": ["lavs.json", "scripts/", "view/"],
+  "keywords": ["lavs", "lavs-bundle"],
+  "license": "MIT"
+}
+```
+
+包名规范：`lavs-bundle-<vendor>-<name>`（如 `lavs-bundle-acme-kanban`）。
+
+**2. 发布到 npm**
+
+```bash
+npm publish --access public
+```
+
+**3. 用户安装**
+
+```bash
+# 安装 bundle 包
+npm install -g lavs-bundle-acme-kanban
+
+# 定位安装路径后，用 lavs view 打开
+lavs view --registry-dir $(npm root -g)/lavs-bundle-acme-kanban
+```
+
+### 方式二：git 仓库
+
+适合不想走 npm 的作者：
 
 1. 把 bundle 目录作为独立 git 仓库（或 monorepo 子目录）
-2. README 里写清 contentType、端点列表、依赖（node 版本等）
+2. README 里写清 contentType、端点列表、依赖（Node 版本等）
 3. 用户 clone 后 `lavs view --registry-dir <clone-path>` 即可用
 
-未来 LAVS 计划支持 bundle registry（类似 npm registry），届时可直接 `lavs install <contentType>`。
+### 注册到社区注册表
+
+发布后，向 [REGISTRY.md](https://github.com/jeffkit/lavs/blob/main/REGISTRY.md) 提 PR，在「社区 Bundle」表格加一行：
+
+```markdown
+| `vendor/name` | `lavs-bundle-xxx` | @你的GitHub | 一句话说明 |
+```
+
+注册要求：lavs.json 通过 validate、contentType 不使用 `lavs/` 前缀、有 README。
 
 ::: warning 安全提示
 运行第三方 bundle 前，检查 `scripts/` 里的代码。LAVS 的 `fileAccess` 权限是建议级（非 OS 强制），恶意 bundle 可能读写声明路径之外的数据。对不可信 bundle 用 Docker / nsjail 沙箱隔离。
