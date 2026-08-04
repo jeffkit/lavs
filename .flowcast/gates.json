@@ -1,0 +1,29 @@
+{
+  "_comment": "lavs 质量门。lavs 是 TS+Python 双端 SDK 协议仓，gate 必须覆盖双端。注意：当前仓 CI 不跑这些门（仅有 release/docs workflow），本 gates.json 是首个质量门定义点。tsc 在 build 里隐式做类型检查。",
+  "gates": {
+    "build": {
+      "_comment": "pnpm build = 顺序编译 types→runtime→client（每个 tsc）。即类型检查+产物构建。",
+      "cmd": "pnpm build",
+      "onFail": "resume-fix",
+      "timeout": 120000
+    },
+    "test": {
+      "_comment": "TS runtime 单测。根 package.json 的 test script = cd sdk/typescript/runtime && pnpm test:run（vitest run）。",
+      "cmd": "pnpm test",
+      "onFail": "resume-fix",
+      "timeout": 120000
+    },
+    "py-test": {
+      "_comment": "Python SDK 单测。asyncio_mode=auto。改了 Python 侧必须跑，防 TS/Python 双端漂移。",
+      "cmd": "cd sdk/python && uv run pytest",
+      "onFail": "resume-fix",
+      "timeout": 120000
+    },
+    "ruff": {
+      "_comment": "Python lint。ruff 配置在 sdk/python/pyproject.toml（line-length 100, rules E/F/I/N/W/UP）。注意：ruff --fix 只能自动修部分规则，剩余的会返回非零——所以用 resume-fix（让 agent 修）而非 autofix（期望全自动修）。",
+      "cmd": "cd sdk/python && uv run ruff check .",
+      "onFail": "resume-fix",
+      "timeout": 60000
+    }
+  }
+}
