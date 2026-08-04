@@ -7,10 +7,9 @@ See docs/SPEC.md for full specification.
 
 from __future__ import annotations
 
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-
 
 # --- Handler variants ---
 
@@ -54,7 +53,7 @@ class MCPHandler(BaseModel):
     tool: str = Field(..., description="MCP tool name")
 
 
-Handler = Union[ScriptHandler, FunctionHandler, HTTPHandler, MCPHandler]
+Handler = ScriptHandler | FunctionHandler | HTTPHandler | MCPHandler
 
 
 # --- Schema ---
@@ -107,12 +106,9 @@ class InlineComponentSource(BaseModel):
     code: str = Field(..., description="Inline code")
 
 
-ComponentSource = Union[
-    CDNComponentSource,
-    NPMComponentSource,
-    LocalComponentSource,
-    InlineComponentSource,
-]
+ComponentSource = (
+    CDNComponentSource | NPMComponentSource | LocalComponentSource | InlineComponentSource
+)
 
 
 # --- View config ---
@@ -175,9 +171,7 @@ class Endpoint(BaseModel):
     """A callable operation exposed by the service."""
 
     id: str = Field(..., description="Unique endpoint identifier")
-    method: Literal["query", "mutation", "subscription"] = Field(
-        ..., description="Operation type"
-    )
+    method: Literal["query", "mutation", "subscription"] = Field(..., description="Operation type")
     description: str | None = Field(default=None, description="Human-readable description")
     handler: Handler = Field(..., description="How to execute this endpoint")
     endpoint_schema: Schema | None = Field(

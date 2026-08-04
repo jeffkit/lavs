@@ -8,11 +8,12 @@ Uses httpx for HTTP requests and SSE.
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 
-from lavs_types import LAVSManifest, LAVSError
+from lavs_types import LAVSError, LAVSManifest
 
 
 class LAVSClient:
@@ -164,9 +165,7 @@ class LAVSClient:
                                     data = data_str
 
                                 if event_type == "connected" and on_connected:
-                                    on_connected(
-                                        data if isinstance(data, dict) else {"data": data}
-                                    )
+                                    on_connected(data if isinstance(data, dict) else {"data": data})
                                 elif event_type == "data":
                                     callback(data)
             except Exception as e:

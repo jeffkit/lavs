@@ -58,9 +58,7 @@ class PermissionChecker:
                 if ep.max_execution_time is not None
                 else mp.max_execution_time
             ),
-            max_memory=(
-                ep.max_memory if ep.max_memory is not None else mp.max_memory
-            ),
+            max_memory=(ep.max_memory if ep.max_memory is not None else mp.max_memory),
         )
 
     def check_path_traversal(self, target_path: str, allowed_base: str) -> None:
@@ -84,7 +82,8 @@ class PermissionChecker:
         except ValueError:
             raise LAVSError(
                 LAVSErrorCode.PermissionDenied,
-                f"Path traversal detected: '{target_path}' resolves outside allowed directory '{allowed_base}'",
+                f"Path traversal detected: '{target_path}' resolves outside "
+                f"allowed directory '{allowed_base}'",
                 {"resolved_path": str(resolved_target), "allowed_base": str(normalized_base)},
             )
 
@@ -161,17 +160,11 @@ class PermissionChecker:
             Effective timeout in milliseconds.
         """
         if handler.timeout is not None and handler.timeout > 0:
-            if (
-                permissions.max_execution_time is not None
-                and permissions.max_execution_time > 0
-            ):
+            if permissions.max_execution_time is not None and permissions.max_execution_time > 0:
                 return min(handler.timeout, permissions.max_execution_time)
             return handler.timeout
 
-        if (
-            permissions.max_execution_time is not None
-            and permissions.max_execution_time > 0
-        ):
+        if permissions.max_execution_time is not None and permissions.max_execution_time > 0:
             return permissions.max_execution_time
 
         return default_timeout

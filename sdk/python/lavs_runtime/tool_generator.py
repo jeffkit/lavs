@@ -16,24 +16,22 @@ import logging
 import os
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Literal
+from typing import Any, Literal
 
+from lavs_runtime.loader import ManifestLoader
+from lavs_runtime.permission_checker import PermissionChecker
+from lavs_runtime.script_executor import ScriptExecutor
+from lavs_runtime.validator import LAVSValidator
 from lavs_types import (
     Endpoint,
     ExecutionContext,
     LAVSError,
     LAVSErrorCode,
     LAVSManifest,
-    Permissions,
-    ScriptHandler,
 )
-
-from lavs_runtime.loader import ManifestLoader
-from lavs_runtime.permission_checker import PermissionChecker
-from lavs_runtime.script_executor import ScriptExecutor
-from lavs_runtime.validator import LAVSValidator
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +75,16 @@ def _notify_host(bundle_name: str, endpoint_id: str, data: Any) -> None:
 # Public types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ClaudeTool:
     """Claude SDK / MCP tool definition."""
 
     name: str
     description: str
-    input_schema: dict[str, Any] = field(default_factory=lambda: {"type": "object", "properties": {}})
+    input_schema: dict[str, Any] = field(
+        default_factory=lambda: {"type": "object", "properties": {}},
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -108,6 +109,7 @@ class GeneratedTool:
 # ---------------------------------------------------------------------------
 # Generator
 # ---------------------------------------------------------------------------
+
 
 class LAVSToolGenerator:
     """
@@ -216,9 +218,7 @@ class LAVSToolGenerator:
             validator.assert_valid_input(endpoint, params, manifest_types)
 
             # 2. Merge permissions
-            merged = perm_checker.merge_permissions(
-                manifest.permissions, endpoint.permissions
-            )
+            merged = perm_checker.merge_permissions(manifest.permissions, endpoint.permissions)
 
             # 3. Build execution context
             context_env: dict[str, str] | None = (
@@ -234,7 +234,6 @@ class LAVSToolGenerator:
 
             # 4. Execute handler
             handler = endpoint.handler
-            htype = handler.type if hasattr(handler, "type") else getattr(handler, "__class__", {})
 
             result: Any
             if getattr(handler, "type", None) == "script":
@@ -262,9 +261,7 @@ class LAVSToolGenerator:
             try:
                 validator.assert_valid_output(endpoint, result, manifest_types)
             except LAVSError as warn_exc:
-                logger.warning(
-                    "[LAVS] Output validation warning for %s: %s", tool_name, warn_exc
-                )
+                logger.warning("[LAVS] Output validation warning for %s: %s", tool_name, warn_exc)
 
             return result
 

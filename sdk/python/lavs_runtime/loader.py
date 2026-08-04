@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lavs_types import LAVSManifest, LAVSError, LAVSErrorCode
+from lavs_types import LAVSError, LAVSErrorCode, LAVSManifest
 
 
 class ManifestLoader:
@@ -93,9 +93,7 @@ class ManifestLoader:
                 )
 
         if not manifest.get("version"):
-            raise LAVSError(
-                LAVSErrorCode.InvalidRequest, "Missing required field: version"
-            )
+            raise LAVSError(LAVSErrorCode.InvalidRequest, "Missing required field: version")
 
         endpoints = manifest.get("endpoints")
         if not isinstance(endpoints, list):
@@ -118,9 +116,7 @@ class ManifestLoader:
     def _validate_endpoint(self, endpoint: dict) -> None:
         """Validate individual endpoint definition."""
         if not endpoint.get("id"):
-            raise LAVSError(
-                LAVSErrorCode.InvalidRequest, "Endpoint missing required field: id"
-            )
+            raise LAVSError(LAVSErrorCode.InvalidRequest, "Endpoint missing required field: id")
 
         method = endpoint.get("method")
         if method not in ("query", "mutation", "subscription"):
@@ -149,7 +145,8 @@ class ManifestLoader:
         if handler["type"] not in valid_types:
             raise LAVSError(
                 LAVSErrorCode.InvalidRequest,
-                f"Invalid handler type: {handler['type']} (must be one of: {', '.join(valid_types)})",
+                f"Invalid handler type: {handler['type']} "
+                f"(must be one of: {', '.join(valid_types)})",
             )
 
         if handler["type"] == "script":

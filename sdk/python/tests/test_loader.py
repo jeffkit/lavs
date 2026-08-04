@@ -13,35 +13,35 @@ from lavs_types import LAVSError, LAVSErrorCode
 @pytest.fixture
 def valid_manifest_content() -> str:
     """Valid lavs.json content."""
-    return json.dumps({
-        "lavs": "1.0",
-        "name": "test-agent",
-        "version": "1.0.0",
-        "description": "Test agent",
-        "endpoints": [
-            {
-                "id": "listItems",
-                "method": "query",
-                "handler": {
-                    "type": "script",
-                    "command": "python3",
-                    "args": ["scripts/list.py"],
-                    "input": "stdin",
+    return json.dumps(
+        {
+            "lavs": "1.0",
+            "name": "test-agent",
+            "version": "1.0.0",
+            "description": "Test agent",
+            "endpoints": [
+                {
+                    "id": "listItems",
+                    "method": "query",
+                    "handler": {
+                        "type": "script",
+                        "command": "python3",
+                        "args": ["scripts/list.py"],
+                        "input": "stdin",
+                    },
                 },
+            ],
+            "permissions": {
+                "fileAccess": ["./data/**/*.json"],
+                "maxExecutionTime": 5000,
             },
-        ],
-        "permissions": {
-            "fileAccess": ["./data/**/*.json"],
-            "maxExecutionTime": 5000,
-        },
-    })
+        }
+    )
 
 
 def test_load_valid_manifest(valid_manifest_content: str) -> None:
     """Test loading a valid manifest."""
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write(valid_manifest_content)
         path = f.name
 
@@ -91,9 +91,7 @@ def test_load_missing_file() -> None:
 
 def test_load_invalid_json() -> None:
     """Test loading invalid JSON raises LAVSError."""
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write("{ invalid json }")
         path = f.name
 
@@ -108,9 +106,7 @@ def test_load_invalid_json() -> None:
 
 def test_load_missing_required_fields() -> None:
     """Test loading manifest with missing required fields."""
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write('{"lavs": "1.0"}')  # Missing name, version, endpoints
         path = f.name
 
@@ -125,15 +121,21 @@ def test_load_missing_required_fields() -> None:
 
 def test_load_duplicate_endpoint_ids() -> None:
     """Test loading manifest with duplicate endpoint IDs."""
-    content = json.dumps({
-        "lavs": "1.0",
-        "name": "test",
-        "version": "1.0.0",
-        "endpoints": [
-            {"id": "dup", "method": "query", "handler": {"type": "script", "command": "echo"}},
-            {"id": "dup", "method": "mutation", "handler": {"type": "script", "command": "echo"}},
-        ],
-    })
+    content = json.dumps(
+        {
+            "lavs": "1.0",
+            "name": "test",
+            "version": "1.0.0",
+            "endpoints": [
+                {"id": "dup", "method": "query", "handler": {"type": "script", "command": "echo"}},
+                {
+                    "id": "dup",
+                    "method": "mutation",
+                    "handler": {"type": "script", "command": "echo"},
+                },
+            ],
+        }
+    )
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write(content)
         path = f.name
@@ -150,15 +152,17 @@ def test_load_duplicate_endpoint_ids() -> None:
 
 def test_load_accepts_optional_content_type() -> None:
     """v1.1: an optional contentType is accepted and round-trips."""
-    content = json.dumps({
-        "lavs": "1.0",
-        "name": "todo-manager",
-        "contentType": "lavs/todo-list",
-        "version": "1.0.0",
-        "endpoints": [
-            {"id": "list", "method": "query", "handler": {"type": "script", "command": "echo"}},
-        ],
-    })
+    content = json.dumps(
+        {
+            "lavs": "1.0",
+            "name": "todo-manager",
+            "contentType": "lavs/todo-list",
+            "version": "1.0.0",
+            "endpoints": [
+                {"id": "list", "method": "query", "handler": {"type": "script", "command": "echo"}},
+            ],
+        }
+    )
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write(content)
         path = f.name
@@ -173,15 +177,17 @@ def test_load_accepts_optional_content_type() -> None:
 
 def test_load_rejects_invalid_content_type() -> None:
     """v1.1: a malformed contentType is rejected at load time."""
-    content = json.dumps({
-        "lavs": "1.0",
-        "name": "bad-ct",
-        "contentType": "has space",
-        "version": "1.0.0",
-        "endpoints": [
-            {"id": "list", "method": "query", "handler": {"type": "script", "command": "echo"}},
-        ],
-    })
+    content = json.dumps(
+        {
+            "lavs": "1.0",
+            "name": "bad-ct",
+            "contentType": "has space",
+            "version": "1.0.0",
+            "endpoints": [
+                {"id": "list", "method": "query", "handler": {"type": "script", "command": "echo"}},
+            ],
+        }
+    )
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write(content)
         path = f.name

@@ -75,9 +75,7 @@ class ScriptExecutor:
         env = self._build_environment(handler, input_data, context)
         cwd = handler.cwd or context.workdir
         timeout_ms = (
-            handler.timeout
-            or context.timeout
-            or (context.permissions.max_execution_time or 30000)
+            handler.timeout or context.timeout or (context.permissions.max_execution_time or 30000)
         )
         timeout_sec = timeout_ms / 1000.0
 
@@ -135,6 +133,7 @@ class ScriptExecutor:
 
         result = []
         for arg in args:
+
             def repl(match: re.Match) -> str:
                 path = match.group(1).strip()
                 value = self._get_value_by_path(input_data, path)
@@ -223,6 +222,7 @@ class ScriptExecutor:
             return json.loads(trimmed)
         except json.JSONDecodeError as e:
             import re
+
             match = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", trimmed)
             if match:
                 try:

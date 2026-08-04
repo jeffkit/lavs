@@ -2,8 +2,8 @@
 
 import pytest
 
-from lavs_runtime import LAVSValidator, ValidationResult
-from lavs_types import Endpoint, Schema, ScriptHandler, LAVSError, LAVSErrorCode
+from lavs_runtime import LAVSValidator
+from lavs_types import Endpoint, LAVSError, LAVSErrorCode, Schema, ScriptHandler
 
 
 @pytest.fixture

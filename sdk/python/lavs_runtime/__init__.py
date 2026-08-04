@@ -10,7 +10,7 @@ from lavs_runtime.permission_checker import PermissionChecker
 from lavs_runtime.rate_limiter import LAVSRateLimiter, RateLimitConfig, RateLimitResult
 from lavs_runtime.script_executor import ScriptExecutor
 from lavs_runtime.tool_generator import ClaudeTool, GeneratedTool, LAVSToolGenerator
-from lavs_runtime.validator import LAVSValidator, ValidationResult, ValidationErrorDetail
+from lavs_runtime.validator import LAVSValidator, ValidationErrorDetail, ValidationResult
 
 __all__ = [
     "ManifestLoader",

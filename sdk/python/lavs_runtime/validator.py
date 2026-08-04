@@ -10,7 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 import jsonschema
-from jsonschema import Draft7Validator, ValidationError as JsonSchemaValidationError
+from jsonschema import Draft7Validator
+from jsonschema import ValidationError as JsonSchemaValidationError
 
 from lavs_types import Endpoint, LAVSError, LAVSErrorCode
 from lavs_types.models import JSONSchema
@@ -80,9 +81,7 @@ class LAVSValidator:
 
         cache_key = f"input:{endpoint.id}"
         schema = self._resolve_schema(endpoint.endpoint_schema.input, types)
-        validator = self._get_or_compile_validator(
-            cache_key, schema, self._input_validators
-        )
+        validator = self._get_or_compile_validator(cache_key, schema, self._input_validators)
 
         try:
             validator.validate(input_data)
@@ -117,9 +116,7 @@ class LAVSValidator:
 
         cache_key = f"output:{endpoint.id}"
         schema = self._resolve_schema(endpoint.endpoint_schema.output, types)
-        validator = self._get_or_compile_validator(
-            cache_key, schema, self._output_validators
-        )
+        validator = self._get_or_compile_validator(cache_key, schema, self._output_validators)
 
         try:
             validator.validate(output)
@@ -151,7 +148,8 @@ class LAVSValidator:
         if not result.valid:
             raise LAVSError(
                 LAVSErrorCode.InvalidParams,
-                f"Invalid input for endpoint '{endpoint.id}': {self._summarize_errors(result.errors)}",
+                f"Invalid input for endpoint '{endpoint.id}': "
+                f"{self._summarize_errors(result.errors)}",
                 {"validation_errors": [vars(e) for e in result.errors]},
             )
 
@@ -176,7 +174,8 @@ class LAVSValidator:
         if not result.valid:
             raise LAVSError(
                 LAVSErrorCode.InternalError,
-                f"Invalid output from endpoint '{endpoint.id}': handler returned data that does not match schema",
+                f"Invalid output from endpoint '{endpoint.id}': "
+                f"handler returned data that does not match schema",
                 {"validation_errors": [vars(e) for e in result.errors]},
             )
 

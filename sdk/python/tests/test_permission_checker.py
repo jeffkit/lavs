@@ -1,12 +1,11 @@
 """Tests for PermissionChecker."""
 
 import tempfile
-from pathlib import Path
 
 import pytest
 
 from lavs_runtime import PermissionChecker
-from lavs_types import Permissions, ScriptHandler, LAVSError, LAVSErrorCode
+from lavs_types import LAVSError, LAVSErrorCode, Permissions, ScriptHandler
 
 
 def test_merge_permissions() -> None:

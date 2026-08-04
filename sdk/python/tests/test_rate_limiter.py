@@ -2,9 +2,7 @@
 
 import time
 
-import pytest
-
-from lavs_runtime import LAVSRateLimiter, RateLimitConfig, RateLimitResult
+from lavs_runtime import LAVSRateLimiter, RateLimitConfig
 
 
 def test_rate_limiter_allows_requests_within_limit() -> None:

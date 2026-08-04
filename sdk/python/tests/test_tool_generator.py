@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from lavs_runtime import LAVSToolGenerator, GeneratedTool
+from lavs_runtime import LAVSToolGenerator
 from lavs_types import LAVSError
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -105,6 +103,7 @@ def bundle_dir():
 # generate_tools
 # ---------------------------------------------------------------------------
 
+
 def test_generate_tools_returns_non_subscription_endpoints(bundle_dir):
     """Subscription endpoints are excluded; query + mutation are included."""
     gen = LAVSToolGenerator()
@@ -157,6 +156,7 @@ def test_has_lavs_false(tmp_path):
 # execute — query
 # ---------------------------------------------------------------------------
 
+
 def test_execute_query_endpoint(bundle_dir):
     gen = LAVSToolGenerator()
     tools = gen.generate_tools("agent1", bundle_dir)
@@ -171,6 +171,7 @@ def test_execute_query_endpoint(bundle_dir):
 # execute — mutation
 # ---------------------------------------------------------------------------
 
+
 def test_execute_mutation_endpoint(bundle_dir, monkeypatch):
     """Mutation calls the script and fires host notification (mocked)."""
     notified = []
@@ -178,7 +179,6 @@ def test_execute_mutation_endpoint(bundle_dir, monkeypatch):
     monkeypatch.delenv("LAVS_HOST_CALLER", raising=False)
 
     import lavs_runtime.tool_generator as tg_mod
-    original_notify = tg_mod._notify_host
 
     def fake_notify(bundle_name, endpoint_id, data):
         notified.append((bundle_name, endpoint_id, data))
@@ -217,6 +217,7 @@ def test_execute_mutation_skips_notify_when_host_caller(bundle_dir, monkeypatch)
 # execute — validation
 # ---------------------------------------------------------------------------
 
+
 def test_execute_raises_on_invalid_input(bundle_dir):
     gen = LAVSToolGenerator()
     tools = gen.generate_tools("agent1", bundle_dir)
@@ -229,6 +230,7 @@ def test_execute_raises_on_invalid_input(bundle_dir):
 # ---------------------------------------------------------------------------
 # Unsupported handler types
 # ---------------------------------------------------------------------------
+
 
 def test_execute_raises_not_implemented_for_http_handler(tmp_path, monkeypatch):
     """http handler type raises NotImplementedError in Python runtime."""

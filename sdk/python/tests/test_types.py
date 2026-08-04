@@ -1,21 +1,15 @@
 """Tests for lavs_types models and validation."""
 
-import pytest
-
 from lavs_types import (
-    LAVSManifest,
     Endpoint,
-    ScriptHandler,
-    FunctionHandler,
-    HTTPHandler,
-    MCPHandler,
-    Schema,
-    ViewConfig,
-    CDNComponentSource,
-    Permissions,
     ExecutionContext,
+    HTTPHandler,
     LAVSError,
     LAVSErrorCode,
+    LAVSManifest,
+    MCPHandler,
+    Permissions,
+    ScriptHandler,
 )
 
 
