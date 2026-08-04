@@ -36,6 +36,11 @@ jobs:
       - name: Build packages
         run: pnpm build
 
+      - name: Changeset status (pre-check)
+        id: changeset-status
+        run: pnpm changeset status
+        continue-on-error: true
+
       - name: Create Release PR or Publish
         id: changesets
         uses: changesets/action@v1
