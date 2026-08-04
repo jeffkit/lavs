@@ -121,6 +121,41 @@ The **integration host** is AgentStudio (`feature/lavs-poc` branch, `agentstudio
 - 禁止只改 TS 或 Python 一侧导致双端语义漂移
 - 禁止在 SDK 中硬编码业务 Agent 清单（用 examples / 业务仓）
 
+## NPM 发布维护 Checklist
+
+**发布链**：`Release` workflow (`push main`) → `changesets/action@v1` → `pnpm release` → `changeset publish`。
+
+**`NPM_TOKEN` 是发布卡点**——只有 token 归属账号对 `lavs-client` / `lavs-runtime` / `lavs-types` 有写入权限，发布才能成功。
+若 release.yml 报 `npm error 404 Not Found - PUT https://registry.npmjs.org/<pkg> - Not found`，**不是协议或权限配置错，而是 token 归属错**。
+
+### 何时需轮换 token
+- npm 控制台轮换 token（创建 Automation token）。
+- 仓库成员变更（离职/换岗）。
+- GitHub Secret 误删/失窃。
+
+### 本地验证 token 归属
+```bash
+npm login --registry=https://registry.npmjs.org   # 输入当前 NPM_TOKEN 同账号
+npm whoami                                        # 应返回 jeffkit
+npm access ls-packages lavs-client                # 应能列出（即 token 是 maintainer）
+npm access ls-packages lavs-runtime
+npm access ls-packages lavs-types
+```
+任一条命令失败或返回空 → token 没有写入权限，需要去 npmjs.com 重新签发。
+
+### GitHub Secret 配置
+- Repo → Settings → Secrets and variables → Actions → `NPM_TOKEN`
+- 选 **Automation** token（非 user token；user token 受 2FA / IP 限制）
+- 勾选 scope: `Publish`（`Read and write` 也可）
+
+### 预检
+`release.yml` 已在 publish 之前跑 `pnpm changeset status`（`continue-on-error: true`，仅做日志），
+token 失效时 status 输出会先于 publish 给出 hints，便于早期发现。
+
+### 防御性 publishConfig
+三个 SDK `package.json` 已显式声明 `"publishConfig": { "access": "public" }`，
+确保即使 token 改了 npmjs 默认策略，unscoped 包仍按 public 发布。
+
 ## 常用命令
 
 ```bash
