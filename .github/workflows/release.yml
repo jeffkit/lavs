@@ -36,6 +36,24 @@ jobs:
       - name: Build packages
         run: pnpm build
 
+      - name: Verify npm auth (fail fast on stale NPM_TOKEN)
+        run: |
+          # npm returns a misleading E404 (not E401) on PUT when the auth
+          # token is missing/expired/lacks publish rights — see npm/cli#1637.
+          # Probe with `npm whoami` so the real cause shows up in the log
+          # instead of a cryptic 404 deep inside `changeset publish`.
+          if ! npm whoami --registry https://registry.npmjs.org/ > /dev/null 2>&1; then
+            echo "::error::NPM_TOKEN is missing, expired, or lacks publish permission."
+            echo "::error::npm whoami failed — verify the secret at"
+            echo "::error::  https://github.com/jeffkit/lavs/settings/secrets/actions"
+            echo "::error::The token must be a classic automation token or a granular"
+            echo "::error::token with read+write on lavs-types, lavs-runtime, lavs-client."
+            exit 1
+          fi
+          echo "Authenticated as: $(npm whoami)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Changeset status (pre-check)
         id: changeset-status
         run: pnpm changeset status
