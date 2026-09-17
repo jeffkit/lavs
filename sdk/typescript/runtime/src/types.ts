@@ -26,10 +26,12 @@ export interface LAVSManifest {
  */
 export interface Endpoint {
   id: string;                       // Unique endpoint identifier
-  method: 'query' | 'mutation' | 'subscription';
+  method: 'query' | 'mutation' | 'subscription' | 'notify';
   description?: string;             // Human-readable description
 
-  handler: Handler;                 // How to execute this endpoint
+  // Optional (and usually omitted) for `notify` endpoints — pure UI commands
+  // have no data side effects. Required for all other methods.
+  handler?: Handler;
   schema?: Schema;                  // Input/output schema
   permissions?: Permissions;        // Endpoint-specific permissions
 }

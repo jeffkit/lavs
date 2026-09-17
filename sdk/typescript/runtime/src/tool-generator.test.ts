@@ -426,3 +426,102 @@ describe('LAVSToolGenerator', () => {
     });
   });
 });
+
+describe('LAVSToolGenerator — notify endpoints (UI commands)', () => {
+  let generator: LAVSToolGenerator;
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    generator = new LAVSToolGenerator();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lavs-notify-tg-test-'));
+    process.env.LAVS_HOST_CALLER = '1'; // suppress fire-and-forget host POSTs
+  });
+
+  afterEach(async () => {
+    delete process.env.LAVS_HOST_CALLER;
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  async function writeManifest(manifest: Record<string, unknown>) {
+    const filePath = path.join(tmpDir, 'lavs.json');
+    await fs.writeFile(filePath, JSON.stringify(manifest, null, 2));
+    return filePath;
+  }
+
+  it('should generate a tool for a handler-less notify endpoint', async () => {
+    await writeManifest({
+      lavs: '1.0',
+      name: 'ui-cmds',
+      version: '1.0.0',
+      endpoints: [
+        {
+          id: 'setCompact',
+          method: 'notify',
+          description: 'Toggle compact layout',
+          schema: { input: { type: 'object', properties: { on: { type: 'boolean' } } } },
+        },
+      ],
+    });
+
+    const tools = await generator.generateTools('agent-1', tmpDir);
+    expect(tools).toHaveLength(1);
+    expect(tools[0].tool.name).toBe('lavs_setCompact');
+    expect(tools[0].method).toBe('notify');
+  });
+
+  it('should execute a handler-less notify endpoint without running anything, returning ok', async () => {
+    await writeManifest({
+      lavs: '1.0',
+      name: 'ui-cmds',
+      version: '1.0.0',
+      endpoints: [{ id: 'setCompact', method: 'notify' }],
+    });
+
+    const tools = await generator.generateTools('agent-1', tmpDir);
+    const result = await tools[0].execute({ on: true });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('should execute a notify endpoint with a handler and return its result', async () => {
+    await writeManifest({
+      lavs: '1.0',
+      name: 'ui-cmds',
+      version: '1.0.0',
+      endpoints: [
+        {
+          id: 'ping',
+          method: 'notify',
+          handler: { type: 'script', command: 'echo', args: ['"pong"'], input: 'args' },
+        },
+      ],
+    });
+
+    const tools = await generator.generateTools('agent-1', tmpDir);
+    const result = await tools[0].execute({});
+    expect(result).toBe('pong');
+  });
+
+  it('should validate input schema for notify endpoints', async () => {
+    await writeManifest({
+      lavs: '1.0',
+      name: 'ui-cmds',
+      version: '1.0.0',
+      endpoints: [
+        {
+          id: 'setFilter',
+          method: 'notify',
+          schema: {
+            input: {
+              type: 'object',
+              required: ['filter'],
+              properties: { filter: { type: 'string', enum: ['all', 'active', 'done'] } },
+            },
+          },
+        },
+      ],
+    });
+
+    const tools = await generator.generateTools('agent-1', tmpDir);
+    await expect(tools[0].execute({ filter: 'bogus' })).rejects.toThrow();
+  });
+});

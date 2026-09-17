@@ -284,7 +284,7 @@ export async function createLAVSRegistryMcpServer(
  * Other results are returned as-is (JSON).
  */
 function formatToolResult(
-  method: 'query' | 'mutation',
+  method: 'query' | 'mutation' | 'notify',
   endpointId: string,
   result: unknown
 ): { content: Array<{ type: 'text'; text: string }> } {
@@ -295,6 +295,15 @@ function formatToolResult(
       content: [{
         type: 'text' as const,
         text: `✅ ${endpointId} completed — LAVS view will auto-refresh.\n\n${data}`,
+      }],
+    };
+  }
+
+  if (method === 'notify') {
+    return {
+      content: [{
+        type: 'text' as const,
+        text: `✅ ${endpointId} command sent — LAVS view has been notified.\n\n${data}`,
       }],
     };
   }

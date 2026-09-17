@@ -53,7 +53,12 @@
   "definitions": {
     "Endpoint": {
       "type": "object",
-      "required": ["id", "method", "handler"],
+      "required": ["id", "method"],
+      "if": {
+        "properties": { "method": { "enum": ["query", "mutation", "subscription"] } },
+        "required": ["method"]
+      },
+      "then": { "required": ["handler"] },
       "properties": {
         "id": {
           "type": "string",
@@ -62,8 +67,8 @@
         },
         "method": {
           "type": "string",
-          "description": "Operation type",
-          "enum": ["query", "mutation", "subscription"]
+          "description": "Operation type. `notify` = pure UI command: no data side effects, handler optional, broadcast to the view as an agent-action with type `ui_command`.",
+          "enum": ["query", "mutation", "subscription", "notify"]
         },
         "description": {
           "type": "string",

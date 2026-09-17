@@ -516,3 +516,90 @@ describe('ManifestLoader', () => {
     });
   });
 });
+
+describe('ManifestLoader — notify endpoints (UI commands)', () => {
+  let loader: ManifestLoader;
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    loader = new ManifestLoader();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lavs-notify-test-'));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  async function writeManifest(manifest: Record<string, unknown>) {
+    const filePath = path.join(tmpDir, 'lavs.json');
+    await fs.writeFile(filePath, JSON.stringify(manifest, null, 2));
+    return filePath;
+  }
+
+  it('should load a notify endpoint without a handler', async () => {
+    const manifestPath = await writeManifest({
+      lavs: '1.0',
+      name: 'ui-cmds',
+      version: '1.0.0',
+      endpoints: [
+        {
+          id: 'setCompact',
+          method: 'notify',
+          description: 'Toggle compact layout',
+          schema: {
+            input: {
+              type: 'object',
+              properties: { on: { type: 'boolean' } },
+            },
+          },
+        },
+      ],
+    });
+
+    const manifest = await loader.load(manifestPath);
+    expect(manifest.endpoints).toHaveLength(1);
+    expect(manifest.endpoints[0].method).toBe('notify');
+    expect(manifest.endpoints[0].handler).toBeUndefined();
+  });
+
+  it('should load a notify endpoint that has a handler', async () => {
+    const manifestPath = await writeManifest({
+      lavs: '1.0',
+      name: 'ui-cmds-2',
+      version: '1.0.0',
+      endpoints: [
+        {
+          id: 'ping',
+          method: 'notify',
+          handler: { type: 'script', command: 'echo', args: ['ok'] },
+        },
+      ],
+    });
+
+    const manifest = await loader.load(manifestPath);
+    expect(manifest.endpoints[0].method).toBe('notify');
+    expect(manifest.endpoints[0].handler).toBeDefined();
+  });
+
+  it('should still reject non-notify endpoints without a handler', async () => {
+    const manifestPath = await writeManifest({
+      lavs: '1.0',
+      name: 'no-handler',
+      version: '1.0.0',
+      endpoints: [{ id: 'listThings', method: 'query' }],
+    });
+
+    await expect(loader.load(manifestPath)).rejects.toThrow(/missing required field: handler/);
+  });
+
+  it('should reject an unknown method', async () => {
+    const manifestPath = await writeManifest({
+      lavs: '1.0',
+      name: 'bad-method',
+      version: '1.0.0',
+      endpoints: [{ id: 'x', method: 'teleport' }],
+    });
+
+    await expect(loader.load(manifestPath)).rejects.toThrow(/Invalid endpoint method/);
+  });
+});

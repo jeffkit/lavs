@@ -1278,6 +1278,93 @@ prerequisites for untrusted-bundle dispatch.
 
 ---
 
+## 12. UI Command Protocol (`notify` endpoints)
+
+> Status: **v1.2-draft** — implemented in `@lavs/runtime` (host + CLI + MCP) and
+> the official bundles. Additive; fully backward-compatible with v1.0/v1.1.
+
+### 12.1 Motivation
+
+v1.0/v1.1 give the agent one-way control over view **data** (mutations) with
+refresh as the only view reaction. Pure view-layer affordances — switch layout,
+collapse a panel, change a filter that is not persisted — had no agent-reachable
+representation. §12 closes that gap while preserving the one-way control
+invariant: **the agent commands the view; the view never commands the agent.**
+
+### 12.2 Endpoint shape
+
+A UI command is a manifest endpoint with `"method": "notify"`:
+
+```json
+{
+  "id": "setCompact",
+  "method": "notify",
+  "description": "Toggle compact layout. No data changes.",
+  "schema": {
+    "input": { "type": "object", "properties": { "on": { "type": "boolean" } } }
+  }
+}
+```
+
+- `handler` is **optional** for `notify` (and required for all other methods).
+  A handler-less notify endpoint executes nothing server-side; the broadcast is
+  the whole effect. A handler MAY be present when the command also has an
+  observable side effect (telemetry, logging, …); its result is carried in the
+  broadcast payload.
+- Input schemas are validated like any other endpoint.
+
+### 12.3 Agent invocation
+
+The agent uses the same channels as every other endpoint — no new tool surface:
+
+```bash
+lavs call setCompact --agent-dir ./bundles/todo-list --input '{"on":true}'
+```
+
+Via MCP the endpoint appears as tool `lavs_setCompact`, same as query/mutation.
+
+### 12.4 Broadcast payload
+
+Executing a `notify` endpoint broadcasts an agent-action (same SSE stream and
+contentType routing as §5/§11) with `action.type = "ui_command"`:
+
+```json
+{
+  "type": "lavs-agent-action",
+  "action": {
+    "type": "ui_command",
+    "tool": "lavs_setCompact",
+    "command": "setCompact",
+    "args": { "on": true },
+    "contentType": "lavs/todo-list",
+    "timestamp": 1789650543223,
+    "result": { "ok": true }
+  }
+}
+```
+
+`tool_executed` payloads (mutations) are unchanged. `command` and `args` are
+absent on `tool_executed` payloads.
+
+### 12.5 View-side contract
+
+Views SHOULD keep a command registry; commands registered there are handled
+locally (no data round-trip). **Views MUST fall back to a data refresh for
+`ui_command` payloads whose command they do not recognize**, so old views
+remain correct under new bundles and vice versa.
+
+### 12.6 Security
+
+- Commands are only ever delivered host → iframe, in the one-way direction.
+  A view cannot invoke commands or address the agent through this channel.
+- Input is schema-validated server-side before broadcast, like mutations.
+- `notify` endpoints are exposed as agent tools; bundle authors must assume
+  any registered command can be invoked arbitrarily often and with arbitrary
+  schema-valid arguments. Views MUST treat command arguments as untrusted
+  input (no `innerHTML` from `args`, etc.).
+
+---
+
 ## References
 
 - JSON-RPC 2.0: https://www.jsonrpc.org/specification
@@ -1296,6 +1383,12 @@ Copyright 2025 AgentStudio Team
 ---
 
 ## Changelog
+
+### v1.2-draft (2026-09-17)
+- **UI Command Protocol** (§12): `notify` endpoint method for pure view-layer
+  commands. Handler optional for notify; agent-action gains `action.type:
+  "ui_command"` with `command`/`args`. Views fall back to refresh on unknown
+  commands. Fully backward-compatible.
 
 ### v1.1.0-draft (2026-07-16)
 - **View Dispatch Protocol** (§11): multiple views per conversation, dispatched

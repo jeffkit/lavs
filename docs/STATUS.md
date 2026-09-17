@@ -123,6 +123,19 @@ MCP-compatible client (Claude Code, Cursor, etc.) can drive a LAVS agent.
 
 ---
 
+## UI Command Protocol (2026-09-17 — `notify` method, SPEC §12)
+
+Closed the "agent cannot trigger pure view-layer buttons" gap. A new endpoint
+method `notify` models UI commands: no data side effects, `handler` optional
+(pure broadcast), exposed as a normal agent tool (`lavs call` / MCP) — no new
+agent-facing surface. Broadcast is an agent-action with `action.type:
+"ui_command"` carrying `command` + `args`; views keep a command registry and
+MUST fall back to refresh for unknown commands. Implemented end-to-end:
+types/schema/loader (TS + Python types), tool-generator, host-server
+(/api/call + /api/notify), mcp-server formatting, todo-list bundle
+(`setFilter`, `setCompact` + view-side registry pattern). E2E verified via
+SSE. See SPEC §12.
+
 ## Known gaps / honest caveats
 
 1. **ADVISORY permissions are not enforced.** `fileAccess`, `networkAccess`,

@@ -12,19 +12,26 @@
       "handler": {
         "type": "script",
         "command": "node",
-        "args": ["scripts/list.js"],
+        "args": [
+          "scripts/list.js"
+        ],
         "input": "args"
       },
       "schema": {
         "input": {
           "type": "object",
           "properties": {
-            "done": { "type": "boolean", "description": "Filter by completion status" }
+            "done": {
+              "type": "boolean",
+              "description": "Filter by completion status"
+            }
           }
         },
         "output": {
           "type": "array",
-          "items": { "$ref": "#/types/Todo" }
+          "items": {
+            "$ref": "#/types/Todo"
+          }
         }
       }
     },
@@ -35,20 +42,39 @@
       "handler": {
         "type": "script",
         "command": "node",
-        "args": ["scripts/add.js"],
+        "args": [
+          "scripts/add.js"
+        ],
         "input": "stdin"
       },
       "schema": {
         "input": {
           "type": "object",
-          "required": ["text"],
+          "required": [
+            "text"
+          ],
           "properties": {
-            "text":     { "type": "string",  "description": "Todo text" },
-            "priority": { "type": "integer", "minimum": 1, "maximum": 3, "description": "1=high 2=medium 3=low" },
-            "tags":     { "type": "array", "items": { "type": "string" } }
+            "text": {
+              "type": "string",
+              "description": "Todo text"
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3,
+              "description": "1=high 2=medium 3=low"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         },
-        "output": { "$ref": "#/types/Todo" }
+        "output": {
+          "$ref": "#/types/Todo"
+        }
       }
     },
     {
@@ -58,19 +84,30 @@
       "handler": {
         "type": "script",
         "command": "node",
-        "args": ["scripts/toggle.js"],
+        "args": [
+          "scripts/toggle.js"
+        ],
         "input": "stdin"
       },
       "schema": {
         "input": {
           "type": "object",
-          "required": ["id"],
+          "required": [
+            "id"
+          ],
           "properties": {
-            "id":   { "type": "integer" },
-            "done": { "type": "boolean", "description": "Set explicit state (omit to toggle)" }
+            "id": {
+              "type": "integer"
+            },
+            "done": {
+              "type": "boolean",
+              "description": "Set explicit state (omit to toggle)"
+            }
           }
         },
-        "output": { "$ref": "#/types/Todo" }
+        "output": {
+          "$ref": "#/types/Todo"
+        }
       }
     },
     {
@@ -80,18 +117,31 @@
       "handler": {
         "type": "script",
         "command": "node",
-        "args": ["scripts/delete.js"],
+        "args": [
+          "scripts/delete.js"
+        ],
         "input": "stdin"
       },
       "schema": {
         "input": {
           "type": "object",
-          "required": ["id"],
+          "required": [
+            "id"
+          ],
           "properties": {
-            "id": { "type": "integer" }
+            "id": {
+              "type": "integer"
+            }
           }
         },
-        "output": { "type": "object", "properties": { "deleted": { "type": "boolean" } } }
+        "output": {
+          "type": "object",
+          "properties": {
+            "deleted": {
+              "type": "boolean"
+            }
+          }
+        }
       }
     },
     {
@@ -101,12 +151,58 @@
       "handler": {
         "type": "script",
         "command": "node",
-        "args": ["scripts/clear-done.js"]
+        "args": [
+          "scripts/clear-done.js"
+        ]
       },
       "schema": {
         "output": {
           "type": "object",
-          "properties": { "deleted": { "type": "integer" } }
+          "properties": {
+            "deleted": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "setFilter",
+      "method": "notify",
+      "description": "Pure UI command: switch the view's filter (all/active/done). No data changes; the view applies the filter locally.",
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": [
+            "filter"
+          ],
+          "properties": {
+            "filter": {
+              "type": "string",
+              "enum": [
+                "all",
+                "active",
+                "done"
+              ],
+              "description": "Which todos to show"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "setCompact",
+      "method": "notify",
+      "description": "Pure UI command: toggle compact layout (smaller rows). No data changes.",
+      "schema": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "on": {
+              "type": "boolean",
+              "description": "true = compact layout, false = comfortable layout"
+            }
+          }
         }
       }
     }
@@ -121,19 +217,43 @@
   "types": {
     "Todo": {
       "type": "object",
-      "required": ["id", "text", "done"],
+      "required": [
+        "id",
+        "text",
+        "done"
+      ],
       "properties": {
-        "id":        { "type": "integer" },
-        "text":      { "type": "string" },
-        "done":      { "type": "boolean" },
-        "priority":  { "type": "integer", "minimum": 1, "maximum": 3 },
-        "tags":      { "type": "array", "items": { "type": "string" } },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "id": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        },
+        "done": {
+          "type": "boolean"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     }
   },
   "permissions": {
-    "fileAccess": ["./data/**/*.json"],
+    "fileAccess": [
+      "./data/**/*.json"
+    ],
     "maxExecutionTime": 5000
   }
 }

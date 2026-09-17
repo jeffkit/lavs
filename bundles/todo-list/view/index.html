@@ -251,6 +251,10 @@
     .empty-state .icon { font-size: 36px; margin-bottom: 12px; }
     .empty-state p { line-height: 1.6; }
     .loading { text-align: center; color: var(--text-muted); padding: 40px; }
+
+    /* ── Compact layout (agent UI command `setCompact`) ── */
+    body.compact .todo-item { padding: 6px 16px; }
+    body.compact .todo-text { font-size: 13px; }
   </style>
 </head>
 <body>
@@ -313,10 +317,27 @@
         pending.get(d.id).reject(new Error(d.error || 'Unknown error'));
         pending.delete(d.id);
       } else if (d.type === 'lavs-agent-action') {
-        // Agent performed an action — refresh the list
-        loadTodos();
+        const a = d.action || {};
+        if (a.type === 'ui_command') {
+          // Pure UI command from a `notify` endpoint — no data changed.
+          // Handle registered commands locally; unknown commands fall back
+          // to a refresh so the view never drifts (forward compatibility).
+          const cmd = lavsUiCommands[a.command];
+          if (cmd) { cmd(a.args || {}); } else { loadTodos(); }
+        } else {
+          // tool_executed — data changed, refresh the list
+          loadTodos();
+        }
       }
     });
+
+    // ── UI command registry (agent → view, via `notify` endpoints) ──
+    const lavsUiCommands = {
+      setFilter(args) { if (['all', 'active', 'done'].includes(args.filter)) setFilter(args.filter); },
+      setCompact(args) {
+        document.body.classList.toggle('compact', args.on !== false);
+      },
+    };
 
     // ── State ──
     let todos = [];

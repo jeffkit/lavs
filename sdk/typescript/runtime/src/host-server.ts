@@ -172,12 +172,18 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
     }
   }
 
-  function broadcastAgentAction(bundleName: string, endpointId: string, result?: unknown, contentType?: string): void {
+  function broadcastAgentAction(bundleName: string, endpointId: string, result?: unknown, contentType?: string, command?: { args?: unknown }): void {
     const payload = {
       type: 'lavs-agent-action',
       action: {
-        type: 'tool_executed',
+        // `tool_executed` = data changed, view should refresh.
+        // `ui_command` = pure view-layer command from a `notify` endpoint:
+        // no data changed; views handle known commands and MUST fall back
+        // to refresh for unknown ones (forward compatibility).
+        type: command ? 'ui_command' : 'tool_executed',
         tool: `lavs_${endpointId}`,
+        command: command ? endpointId : undefined,
+        args: command?.args,
         // contentType is the routing key clients use to direct events to the
         // correct view iframe. MUST be the bundle's declared contentType
         // (manifest.contentType ?? name), NOT the bundle name. Callers that
@@ -299,10 +305,14 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
         const result = await tool.execute(input);
         delete process.env.LAVS_HOST_CALLER;
 
-        // Only broadcast for mutations (not queries) to avoid loops:
-        // queries are typically view-initiated and the view already has the result.
+        // Only broadcast for mutations and notify endpoints to avoid loops:
+        // queries are typically view-initiated and the view already has the
+        // result. Mutations change data (view refreshes); notify endpoints
+        // are pure UI commands (view handles the command).
         if (endpoint?.method === 'mutation') {
           broadcastAgentAction(bundleName, endpointId, result, bundle.contentType);
+        } else if (endpoint?.method === 'notify') {
+          broadcastAgentAction(bundleName, endpointId, result, bundle.contentType, { args: input });
         }
 
         respondJson(res, 200, { result });
@@ -314,17 +324,33 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
 
     // ── POST /api/notify/:bundle/:endpoint → agent-driven notification ──
     // Called by `lavs call` CLI after executing an endpoint directly.
+    // `kind: 'ui_command'` + `input` mark a `notify` endpoint: broadcast the
+    // command arguments so the view can react, not just refresh.
     const notifyMatch = pathname.match(/^\/api\/notify\/([^/]+)\/([^/]+)$/);
     if (notifyMatch && req.method === 'POST') {
       const bundleName = decodeURIComponent(notifyMatch[1]);
       const endpointId = decodeURIComponent(notifyMatch[2]);
       const body = await readBody(req);
       let result: unknown;
-      if (body) { try { result = JSON.parse(body).result; } catch { /* ignore */ } }
+      let input: unknown;
+      let isUiCommand = false;
+      if (body) {
+        try {
+          const parsed = JSON.parse(body);
+          result = parsed.result ?? parsed.data;
+          if (parsed.kind === 'ui_command') { isUiCommand = true; input = parsed.input; }
+        } catch { /* ignore */ }
+      }
       // Resolve contentType so the SSE payload carries the correct routing key.
       const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
       const bundle = bundles.find((b) => b.name === bundleName);
-      broadcastAgentAction(bundleName, endpointId, result, bundle?.contentType);
+      broadcastAgentAction(
+        bundleName,
+        endpointId,
+        result,
+        bundle?.contentType,
+        isUiCommand ? { args: input } : undefined
+      );
       respondJson(res, 200, { ok: true });
       return;
     }

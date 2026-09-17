@@ -34,12 +34,13 @@ function getGlobalHostPort(): number {
 }
 
 /**
- * Fire-and-forget: notify the global LAVS host that a mutation happened
- * so connected view iframes can refresh via SSE.
+ * Fire-and-forget: notify the global LAVS host that a mutation or UI
+ * command happened so connected view iframes can react via SSE.
+ * `input` is only set for `notify` endpoints (the command arguments).
  */
-function notifyGlobalHost(bundleName: string, endpointId: string, data: unknown): void {
+function notifyGlobalHost(bundleName: string, endpointId: string, data: unknown, input?: unknown): void {
   try {
-    const body = JSON.stringify({ data });
+    const body = JSON.stringify(input !== undefined ? { data, input, kind: 'ui_command' } : { data });
     const req = http.request({
       hostname: '127.0.0.1',
       port: getGlobalHostPort(),
@@ -80,7 +81,7 @@ export interface GeneratedTool {
   tool: ClaudeTool;
   execute: ToolExecutor;
   /** Endpoint method type — used by MCP server to format output and decide view refresh */
-  method: 'query' | 'mutation';
+  method: 'query' | 'mutation' | 'notify';
 }
 
 /**
@@ -187,7 +188,7 @@ export class LAVSToolGenerator {
       );
 
       // 3. Check permissions for script handlers
-      if (endpoint.handler.type === 'script') {
+      if (endpoint.handler?.type === 'script') {
         permChecker.assertAllowed(
           endpoint.handler as ScriptHandler,
           mergedPermissions,
@@ -206,9 +207,13 @@ export class LAVSToolGenerator {
         } : undefined,
       };
 
-      // 5. Execute the handler
+      // 5. Execute the handler. `notify` endpoints may omit the handler
+      // entirely — a pure UI command has nothing to run server-side; the
+      // broadcast below is the whole effect.
       let result: unknown;
-      switch (endpoint.handler.type) {
+      if (!endpoint.handler) {
+        result = { ok: true };
+      } else switch (endpoint.handler.type) {
         case 'script': {
           const executor = new ScriptExecutor();
           result = await executor.execute(
@@ -251,11 +256,17 @@ export class LAVSToolGenerator {
         }
       }
 
-      // 6. Notify global host after mutations so views auto-refresh (fire-and-forget).
-      // Skip when called from within the host itself (LAVS_HOST_CALLER=1) to avoid
-      // double-broadcasting — the host's /api/call handler broadcasts directly.
-      if (endpoint.method === 'mutation' && !process.env.LAVS_HOST_CALLER) {
-        notifyGlobalHost(manifest.name, endpoint.id, result);
+      // 6. Notify global host after mutations / UI commands so views react
+      // (fire-and-forget). Skip when called from within the host itself
+      // (LAVS_HOST_CALLER=1) to avoid double-broadcasting — the host's
+      // /api/call handler broadcasts directly.
+      if ((endpoint.method === 'mutation' || endpoint.method === 'notify') && !process.env.LAVS_HOST_CALLER) {
+        notifyGlobalHost(
+          manifest.name,
+          endpoint.id,
+          result,
+          endpoint.method === 'notify' ? params : undefined
+        );
       }
 
       // 7. Validate output against schema (non-blocking: warn on mismatch, still return data)
@@ -268,7 +279,7 @@ export class LAVSToolGenerator {
       return result;
     };
 
-    return { tool, execute, method: endpoint.method as 'query' | 'mutation' };
+    return { tool, execute, method: endpoint.method as 'query' | 'mutation' | 'notify' };
   }
 
   /**

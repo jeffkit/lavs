@@ -171,9 +171,17 @@ class Endpoint(BaseModel):
     """A callable operation exposed by the service."""
 
     id: str = Field(..., description="Unique endpoint identifier")
-    method: Literal["query", "mutation", "subscription"] = Field(..., description="Operation type")
+    method: Literal["query", "mutation", "subscription", "notify"] = Field(
+        ...,
+        description=(
+            "Operation type. `notify` = pure UI command: no data side effects, "
+            "handler optional, broadcast to the view as an agent-action with type `ui_command`."
+        ),
+    )
     description: str | None = Field(default=None, description="Human-readable description")
-    handler: Handler = Field(..., description="How to execute this endpoint")
+    # Optional for `notify` endpoints (pure UI commands usually have nothing
+    # to execute server-side); required for all other methods.
+    handler: Handler | None = Field(default=None, description="How to execute this endpoint")
     endpoint_schema: Schema | None = Field(
         default=None,
         description="Input/output schema",

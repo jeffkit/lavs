@@ -130,18 +130,23 @@ export class ManifestLoader {
       );
     }
 
-    if (!endpoint.method || !['query', 'mutation', 'subscription'].includes(endpoint.method)) {
+    if (!endpoint.method || !['query', 'mutation', 'subscription', 'notify'].includes(endpoint.method)) {
       throw new LAVSError(
         LAVSErrorCode.InvalidRequest,
-        `Invalid endpoint method: ${endpoint.method} (must be query, mutation, or subscription)`
+        `Invalid endpoint method: ${endpoint.method} (must be query, mutation, subscription, or notify)`
       );
     }
 
+    // `notify` endpoints are pure UI commands with no data side effects —
+    // the handler is optional (the runtime just broadcasts the command).
     if (!endpoint.handler) {
-      throw new LAVSError(
-        LAVSErrorCode.InvalidRequest,
-        `Endpoint ${endpoint.id} missing required field: handler`
-      );
+      if (endpoint.method !== 'notify') {
+        throw new LAVSError(
+          LAVSErrorCode.InvalidRequest,
+          `Endpoint ${endpoint.id} missing required field: handler`
+        );
+      }
+      return;
     }
 
     this.validateHandler(endpoint.handler, endpoint.id);
@@ -224,6 +229,9 @@ export class ManifestLoader {
     // Resolve endpoint handlers
     for (const endpoint of resolved.endpoints) {
       const handler = endpoint.handler;
+
+      // Handler-less notify endpoints have no paths to resolve.
+      if (!handler) continue;
 
       if (handler.type === 'script') {
         // Resolve script command path if it looks like a relative file path
