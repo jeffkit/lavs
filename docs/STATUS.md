@@ -136,6 +136,16 @@ types/schema/loader (TS + Python types), tool-generator, host-server
 (`setFilter`, `setCompact` + view-side registry pattern). E2E verified via
 SSE. See SPEC §12.
 
+## View SDK + Quickstart (2026-09-17)
+
+- **`@lavs/view`** (`sdk/typescript/view`): view-side SDK — postMessage bridge
+  (`view.call(endpoint, input)`), UI command registry, refresh fallback
+  (SPEC §12.5). Ships a prebuilt IIFE (`dist/lavs-view.iife.js`, global
+  `LAVSView`) so no-build bundle views use it via a plain `<script>` tag.
+  todo-list migrated as the reference bundle.
+- **`examples/quickstart/`**: from-zero 5-minute demo bundle (query + mutation
+  + notify) with a copy-paste walkthrough README.
+
 ## Known gaps / honest caveats
 
 1. **ADVISORY permissions are not enforced.** `fileAccess`, `networkAccess`,

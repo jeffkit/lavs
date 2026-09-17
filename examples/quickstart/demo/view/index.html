@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>LAVS Quickstart Demo</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    font-family: system-ui, sans-serif;
+    margin: 0; padding: 24px;
+    background: #16181d; color: #e8eaed;
+    transition: background .2s, color .2s;
+  }
+  body.light { background: #f6f7f9; color: #1a1c20; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { opacity: .6; font-size: 13px; margin-bottom: 20px; }
+  ul { padding-left: 20px; line-height: 1.9; }
+  .empty { opacity: .5; padding: 24px 0; }
+</style>
+</head>
+<body>
+  <h1>LAVS Quickstart Demo</h1>
+  <div class="sub">Agent → view: data via mutations, UI via <code>setTheme</code> (notify)</div>
+  <ul id="items"><li class="empty">Loading…</li></ul>
+
+  <!-- @lavs/view prebuilt IIFE — copied from sdk/typescript/view/dist/ -->
+  <script src="lavs-view.iife.js"></script>
+  <script>
+    const view = LAVSView.connect({
+      refresh: loadItems,
+      commands: {
+        // `notify` endpoint "setTheme" — handled locally, no data round-trip.
+        setTheme(args) {
+          document.body.classList.toggle('light', args.theme === 'light');
+        },
+      },
+    });
+
+    async function loadItems() {
+      const items = await view.call('getItems');
+      document.getElementById('items').innerHTML = items.length
+        ? items.map((t) => `<li>${t}</li>`).join('')
+        : '<li class="empty">No items yet — ask your agent to add one.</li>';
+    }
+
+    loadItems();
+  </script>
+</body>
+</html>

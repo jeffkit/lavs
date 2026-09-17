@@ -1348,7 +1348,7 @@ absent on `tool_executed` payloads.
 
 ### 12.5 View-side contract
 
-Views SHOULD keep a command registry; commands registered there are handled
+Views SHOULD keep a command registry (reference implementation: `@lavs/view`, `LAVSView.connect({ refresh, commands })`); commands registered there are handled
 locally (no data round-trip). **Views MUST fall back to a data refresh for
 `ui_command` payloads whose command they do not recognize**, so old views
 remain correct under new bundles and vice versa.

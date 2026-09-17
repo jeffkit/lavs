@@ -1,0 +1,49 @@
+{
+  "name": "lavs-view",
+  "version": "0.1.0",
+  "description": "LAVS view-side SDK: postMessage bridge to the LAVS host plus UI command registry (SPEC §12). Ships a prebuilt IIFE (dist/lavs-view.iife.js) for no-build bundle views.",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./iife": "./dist/lavs-view.iife.js"
+  },
+  "scripts": {
+    "build": "tsc && esbuild src/index.ts --bundle --format=iife --global-name=LAVSView --outfile=dist/lavs-view.iife.js",
+    "test": "vitest run",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "lavs",
+    "agent",
+    "view",
+    "ui-command",
+    "iframe",
+    "postmessage"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeffkit/lavs.git",
+    "directory": "sdk/typescript/view"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "esbuild": "^0.21.5",
+    "typescript": "^5.1.6",
+    "vitest": "^1.6.0"
+  }
+}

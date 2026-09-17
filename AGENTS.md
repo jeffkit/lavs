@@ -30,6 +30,7 @@ LAVS 让本地 Agent 通过 `lavs.json` 清单暴露 View / Query / Mutation / S
 - `sdk/typescript/types/` — `@lavs/types`
 - `sdk/typescript/runtime/src/` — `@lavs/runtime`（loader、validator、executors、mcp-server、CLI）
 - `sdk/typescript/client/` — `@lavs/client`
+- `sdk/typescript/view/` — `@lavs/view`（view 侧 SDK：postMessage 桥 + UI command registry，IIFE 产物供无构建 bundle 视图直接 `<script>` 引入）
 - `sdk/python/` — `lavs_types` / `lavs_runtime` / `lavs_client`
 - `skill/SKILL.md` — Agent 使用 Skill
 

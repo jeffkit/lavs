@@ -1,0 +1,44 @@
+{
+  "lavs": "1.0",
+  "name": "demo",
+  "contentType": "lavs/quickstart-demo",
+  "version": "1.0.0",
+  "description": "Smallest possible LAVS bundle: query + mutation + notify (UI command)",
+  "endpoints": [
+    {
+      "id": "getItems",
+      "method": "query",
+      "description": "List all items",
+      "handler": { "type": "script", "command": "node", "args": ["scripts/get.js"] },
+      "schema": {
+        "output": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    {
+      "id": "addItem",
+      "method": "mutation",
+      "description": "Add an item. The view auto-refreshes after this.",
+      "handler": { "type": "script", "command": "node", "args": ["scripts/add.js"], "input": "stdin" },
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["text"],
+          "properties": { "text": { "type": "string" } }
+        },
+        "output": { "type": "object", "properties": { "ok": { "type": "boolean" } } }
+      }
+    },
+    {
+      "id": "setTheme",
+      "method": "notify",
+      "description": "Pure UI command: switch view theme (dark/light). No data changes.",
+      "schema": {
+        "input": {
+          "type": "object",
+          "required": ["theme"],
+          "properties": { "theme": { "type": "string", "enum": ["dark", "light"] } }
+        }
+      }
+    }
+  ]
+}

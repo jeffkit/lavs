@@ -295,49 +295,21 @@
     <button class="clear-btn" onclick="clearDone()">Clear done</button>
   </div>
 
+  <script src="lavs-view.iife.js"></script>
   <script>
-    // ── LAVS postMessage bridge ──
-    let callId = 0;
-    const pending = new Map();
-
-    function lavs(endpoint, input) {
-      return new Promise((resolve, reject) => {
-        const id = String(++callId);
-        pending.set(id, { resolve, reject });
-        window.parent.postMessage({ type: 'lavs-call', id, endpoint, input: input || {} }, '*');
-      });
-    }
-
-    window.addEventListener('message', (e) => {
-      const d = e.data;
-      if (d.type === 'lavs-result' && pending.has(d.id)) {
-        pending.get(d.id).resolve(d.result);
-        pending.delete(d.id);
-      } else if (d.type === 'lavs-error' && pending.has(d.id)) {
-        pending.get(d.id).reject(new Error(d.error || 'Unknown error'));
-        pending.delete(d.id);
-      } else if (d.type === 'lavs-agent-action') {
-        const a = d.action || {};
-        if (a.type === 'ui_command') {
-          // Pure UI command from a `notify` endpoint — no data changed.
-          // Handle registered commands locally; unknown commands fall back
-          // to a refresh so the view never drifts (forward compatibility).
-          const cmd = lavsUiCommands[a.command];
-          if (cmd) { cmd(a.args || {}); } else { loadTodos(); }
-        } else {
-          // tool_executed — data changed, refresh the list
-          loadTodos();
-        }
-      }
-    });
-
-    // ── UI command registry (agent → view, via `notify` endpoints) ──
-    const lavsUiCommands = {
-      setFilter(args) { if (['all', 'active', 'done'].includes(args.filter)) setFilter(args.filter); },
-      setCompact(args) {
-        document.body.classList.toggle('compact', args.on !== false);
+    // ── LAVS view SDK (bridge + agent-action routing + UI commands) ──
+    // State/`setFilter` below are hoisted function declarations, safe to reference.
+    const view = LAVSView.connect({
+      refresh: () => loadTodos(),
+      commands: {
+        setFilter(args) { if (['all', 'active', 'done'].includes(args.filter)) setFilter(args.filter); },
+        setCompact(args) {
+          document.body.classList.toggle('compact', args.on !== false);
+        },
       },
-    };
+    });
+    // Thin alias so the rest of this file stays `lavs('endpoint', input)`.
+    const lavs = (endpoint, input) => view.call(endpoint, input);
 
     // ── State ──
     let todos = [];

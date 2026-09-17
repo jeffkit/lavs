@@ -38,6 +38,10 @@ LAVS fills this gap:
 
 ## Quick Start
 
+> **从零试运行（另一台电脑）**：见 [`examples/quickstart/README.md`](examples/quickstart/README.md) ——
+> clone + build 后两条命令打开视图，再用 `lavs call` 扮演 Agent，实时看页面响应数据变更与 UI 命令。
+
+
 ### 1. Define Your Agent's Interface
 
 Create a `lavs.json` manifest:
