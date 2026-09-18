@@ -13,7 +13,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import http from 'http';
-import { createHostServer, discoverBundlesFromDirs, LAVSHostServer } from './host-server';
+import { createHostServer, createHostHandler, discoverBundlesFromDirs, LAVSHostServer } from './host-server';
 
 describe('LAVS Host Server', () => {
   let tmpDir: string;
@@ -486,5 +486,131 @@ describe('LAVS Host Server — declared static roots (view.staticRoots, issue #1
     const r = await raw('GET', '/view/film/shared/../build/film.mp4');
     // ../build resolves to <tmp>/build — does not exist; must NOT serve the project file
     expect(r.status).toBe(404);
+  });
+});
+
+describe('createHostHandler — embeddable, mountable, one port (issue #14)', () => {
+  let tmpDir: string;
+  let embedServer: http.Server | undefined;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lavs-embed-test-'));
+    const dir = path.join(tmpDir, 'embed');
+    await fs.mkdir(path.join(dir, 'view'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'lavs.json'), JSON.stringify({
+      lavs: '1.0', name: 'embedme', contentType: 'lavs/embedme', version: '1.0.0',
+      view: { component: { type: 'local', path: './view/index.html' } },
+      endpoints: [{
+        id: 'ping', method: 'query', description: 'ping',
+        handler: { type: 'script', command: 'node', args: ['-e', 'console.log(JSON.stringify({pong:true}))'] },
+      }],
+    }));
+    await fs.writeFile(path.join(dir, 'view', 'index.html'), '<html>embed</html>');
+    await fs.writeFile(path.join(dir, 'view', 'clip.mp4'), Buffer.alloc(700, 0x65));
+  });
+
+  afterEach(async () => {
+    if (embedServer) {
+      embedServer.closeAllConnections();
+      await new Promise<void>((r) => embedServer!.close(() => r()));
+    }
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  function raw(port: number, method: string, pathname: string, headers: Record<string, string> = {}): Promise<{
+    status: number; headers: http.IncomingHttpHeaders; body: Buffer;
+  }> {
+    return new Promise((resolve, reject) => {
+      const req = http.request({ hostname: '127.0.0.1', port, path: pathname, method, headers }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c as Buffer));
+        res.on('end', () => resolve({ status: res.statusCode || 0, headers: res.headers, body: Buffer.concat(chunks) }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  it('mounts under a prefix on the embedder\u2019s own server — one listener total', async () => {
+    const lavs = await createHostHandler({ registryDirs: [tmpDir], prefix: '/lavs' });
+    const ownHits: string[] = [];
+    embedServer = http.createServer((req, res) => {
+      const url = req.url || '/';
+      if (url.startsWith('/lavs')) return lavs.handler(req, res);
+      ownHits.push(url);
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('own-route');
+    });
+    await new Promise<void>((r) => embedServer!.listen(0, '127.0.0.1', () => r()));
+    const port = (embedServer!.address() as any).port;
+
+    // LAVS routes under the prefix
+    const disc = await raw(port, 'GET', '/lavs/api/discover');
+    expect(disc.status).toBe(200);
+    expect(JSON.parse(disc.body.toString())[0].name).toBe('embedme');
+
+    const call = await raw(port, 'POST', '/lavs/api/call/embedme/ping');
+    expect(call.status).toBe(200);
+    expect(JSON.parse(call.body.toString()).result).toEqual({ pong: true });
+
+    // media Range through the mount
+    const range = await raw(port, 'GET', '/lavs/view/embedme/view/clip.mp4', { Range: 'bytes=0-9' });
+    expect(range.status).toBe(206);
+    expect(range.headers['content-range']).toBe('bytes 0-9/700');
+
+    // SSE through the mount receives broadcast from notifyAgentAction
+    const sseEvents: string[] = [];
+    await new Promise<void>((resolve) => {
+      const sseReq = http.request({ hostname: '127.0.0.1', port, path: '/lavs/api/events', method: 'GET' }, (res) => {
+        res.on('data', (c) => {
+          sseEvents.push(c.toString());
+          if (sseEvents.join('').includes('ui_command')) { sseReq.destroy(); resolve(); }
+        });
+      });
+      sseReq.on('error', () => resolve());
+      sseReq.end();
+      setTimeout(() => {
+        lavs.notifyAgentAction('embedme', 'setCompact', { ok: true }, 'lavs/embedme', { args: { on: true } });
+      }, 100);
+      setTimeout(() => { sseReq.destroy(); resolve(); }, 2000);
+    });
+    expect(sseEvents.join('')).toContain('ui_command');
+
+    // embedder's own routes untouched; prefix root without bare does NOT serve the UI at '/'
+    const own = await raw(port, 'GET', '/own');
+    expect(own.status).toBe(200);
+    expect(own.body.toString()).toBe('own-route');
+    expect(ownHits.length).toBeGreaterThan(0);
+  });
+
+  it('bare+bundle serves the host UI (bridge + SSE wiring) under the prefix', async () => {
+    const lavs = await createHostHandler({ registryDirs: [tmpDir], prefix: '/lavs', bare: true, bundle: 'embedme' });
+    embedServer = http.createServer((req, res) => {
+      if ((req.url || '/').startsWith('/lavs')) return lavs.handler(req, res);
+      res.writeHead(404); res.end();
+    });
+    await new Promise<void>((r) => embedServer!.listen(0, '127.0.0.1', () => r()));
+    const port = (embedServer!.address() as any).port;
+
+    const ui = await raw(port, 'GET', '/lavs');
+    expect(ui.status).toBe(200);
+    expect(ui.body.toString()).toContain('<body class="bare">');
+    expect(ui.body.toString()).toContain('lavs-call');
+    expect(ui.body.toString()).toContain("/api/events");
+    // rewritten URL: assets under prefix keep working because routing is prefix-stripped
+    const view = await raw(port, 'GET', '/lavs/view/embedme/view/index.html');
+    expect(view.status).toBe(200);
+  });
+
+  it('default createHostServer behavior is unchanged (regression)', async () => {
+    const host = await createHostServer({ registryDirs: [tmpDir], port: 0 });
+    try {
+      const r = await raw(host.port, 'GET', '/api/discover');
+      expect(r.status).toBe(200);
+      expect(JSON.parse(r.body.toString())[0].name).toBe('embedme');
+      host.notifyAgentAction('embedme', 'ping', { ok: true });
+    } finally {
+      await host.close();
+    }
   });
 });

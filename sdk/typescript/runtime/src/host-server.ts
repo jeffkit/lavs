@@ -19,6 +19,7 @@ import { ManifestLoader } from './loader';
 import { LAVSToolGenerator } from './tool-generator';
 import { LAVSManifest, Endpoint } from './types';
 import { buildHostUI } from './host-ui';
+export { buildHostUI } from './host-ui';
 
 export interface BundleInfo {
   name: string;
@@ -252,10 +253,25 @@ export async function discoverBundlesFromDirs(registryDirs: string[]): Promise<B
 }
 
 /**
- * Create and start the LAVS host HTTP server.
+ * Shared host state + request handler, used by both createHostServer
+ * (listens on its own port) and createHostHandler (mountable, issue #14).
  */
-export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHostServer> {
-  const { port, bare, bareBundle } = options;
+interface HostContext {
+  handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void>;
+  broadcastAgentAction(bundleName: string, endpointId: string, result?: unknown, contentType?: string, command?: { args?: unknown }): void;
+  getRegistryDirs(): string[];
+  addRegistryDir(dir: string): void;
+  removeRegistryDir(dir: string): void;
+}
+
+function createHostContext(options: {
+  registryDirs: string[];
+  /** Port used only for the URL base of routing/UI (never bound). */
+  port?: number;
+  bare?: boolean;
+  bareBundle?: string | null;
+}): HostContext {
+  const { port = 0, bare, bareBundle } = options;
 
   // Mutable registry dirs — managed via /api/registries at runtime
   let currentRegistryDirs: string[] = [...options.registryDirs];
@@ -300,7 +316,7 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
     }
   }
 
-  const server = http.createServer(async (req, res) => {
+  async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url || '/', `http://localhost:${port}`);
     const pathname = url.pathname;
 
@@ -532,6 +548,33 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
     }
 
     res.writeHead(404); res.end('Not Found');
+  }
+
+  return {
+    handleRequest,
+    broadcastAgentAction,
+    getRegistryDirs: () => [...currentRegistryDirs],
+    addRegistryDir: (dir: string) => {
+      const absDir = path.resolve(dir);
+      if (!currentRegistryDirs.includes(absDir)) currentRegistryDirs.push(absDir);
+    },
+    removeRegistryDir: (dir: string) => {
+      const absDir = path.resolve(dir);
+      currentRegistryDirs = currentRegistryDirs.filter((d) => d !== absDir);
+    },
+  };
+}
+
+/**
+ * Create and start the LAVS host HTTP server.
+ */
+export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHostServer> {
+  const { port, bare, bareBundle } = options;
+  const ctx = createHostContext({ registryDirs: options.registryDirs, port, bare, bareBundle });
+  const { handleRequest } = ctx;
+
+  const server = http.createServer(async (req, res) => {
+    await handleRequest(req, res);
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -545,17 +588,63 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
   return {
     server,
     port: actualPort,
-    notifyAgentAction: broadcastAgentAction,
-    addRegistryDir: (dir: string) => {
-      const absDir = path.resolve(dir);
-      if (!currentRegistryDirs.includes(absDir)) currentRegistryDirs.push(absDir);
-    },
-    removeRegistryDir: (dir: string) => {
-      const absDir = path.resolve(dir);
-      currentRegistryDirs = currentRegistryDirs.filter((d) => d !== absDir);
-    },
-    getRegistryDirs: () => [...currentRegistryDirs],
+    notifyAgentAction: ctx.broadcastAgentAction,
+    addRegistryDir: ctx.addRegistryDir,
+    removeRegistryDir: ctx.removeRegistryDir,
+    getRegistryDirs: ctx.getRegistryDirs,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
+/**
+ * A mountable LAVS host WITHOUT binding a port (issue #14): embedders attach
+ * `handler` to their own http.Server for one-process / one-port deployments.
+ */
+export interface LAVSHostHandler {
+  handler: (req: http.IncomingMessage, res: http.ServerResponse) => void;
+  notifyAgentAction(bundleName: string, endpointId: string, result?: unknown, contentType?: string, command?: { args?: unknown }): void;
+  addRegistryDir(dir: string): void;
+  removeRegistryDir(dir: string): void;
+  getRegistryDirs(): string[];
+}
+
+/**
+ * Create a mountable LAVS host handler. `prefix` (e.g. '/lavs') is stripped
+ * from incoming URLs before routing; without a prefix routes mount at '/'.
+ */
+export async function createHostHandler(options: {
+  registryDirs: string[];
+  prefix?: string;
+  /** Serve the full host UI (auto-opening `bundle`) at the prefix root. */
+  bare?: boolean;
+  /** Bundle (name or contentType) to auto-open in the host UI. */
+  bundle?: string | null;
+}): Promise<LAVSHostHandler> {
+  const rawPrefix = options.prefix && options.prefix !== '/' ? options.prefix.replace(/\/+$/, '') : '';
+  const ctx = createHostContext({
+    registryDirs: options.registryDirs,
+    bare: options.bare,
+    bareBundle: options.bundle ?? null,
+  });
+  const handler = (req: http.IncomingMessage, res: http.ServerResponse): void => {
+    if (rawPrefix) {
+      const url = req.url || '/';
+      if (url === rawPrefix) {
+        req.url = '/';
+      } else if (url.startsWith(rawPrefix + '/')) {
+        req.url = url.slice(rawPrefix.length);
+      }
+      // URLs outside the prefix still reach the router and get 404'd —
+      // embedders are expected to dispatch only matching requests here.
+    }
+    void ctx.handleRequest(req, res);
+  };
+  return {
+    handler,
+    notifyAgentAction: ctx.broadcastAgentAction,
+    addRegistryDir: ctx.addRegistryDir,
+    removeRegistryDir: ctx.removeRegistryDir,
+    getRegistryDirs: ctx.getRegistryDirs,
   };
 }
 

@@ -46,4 +46,20 @@ export type { ClaudeTool, ToolExecutor, GeneratedTool } from './tool-generator';
 
 // MCP Server (standard @modelcontextprotocol/sdk integration)
 export { createLAVSMcpServer, connectStdio, getLAVSToolNames } from './mcp-server';
+
+// Embeddable host server (issue #14): use the runtime as a library
+export {
+  createHostServer,
+  createHostHandler,
+  discoverBundles,
+  discoverBundlesFromDirs,
+  buildHostUI,
+} from './host-server';
+export type {
+  LAVSHostOptions,
+  LAVSHostServer,
+  LAVSHostHandler,
+  BundleInfo,
+} from './host-server';
+export type { HostUIOptions } from './host-ui';
 export type { LAVSMcpServerOptions } from './mcp-server';
