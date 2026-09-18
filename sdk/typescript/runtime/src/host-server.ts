@@ -37,6 +37,10 @@ export interface LAVSHostOptions {
   /** One or more directories to scan for LAVS bundles. */
   registryDirs: string[];
   port: number;
+  /** Render the view full-bleed with no host chrome (see HostUIOptions.bare). */
+  bare?: boolean;
+  /** Bundle to auto-open in bare mode (bundle name or contentType). */
+  bareBundle?: string | null;
 }
 
 /**
@@ -156,7 +160,7 @@ export async function discoverBundlesFromDirs(registryDirs: string[]): Promise<B
  * Create and start the LAVS host HTTP server.
  */
 export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHostServer> {
-  const { port } = options;
+  const { port, bare, bareBundle } = options;
 
   // Mutable registry dirs — managed via /api/registries at runtime
   let currentRegistryDirs: string[] = [...options.registryDirs];
@@ -218,7 +222,7 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
 
     // ── GET / → serve host UI ──
     if (pathname === '/' && req.method === 'GET') {
-      const html = buildHostUI({ port });
+      const html = buildHostUI({ port, bare, bundle: bareBundle ?? null });
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       return;

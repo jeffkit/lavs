@@ -15,9 +15,17 @@
 
 export interface HostUIOptions {
   port: number;
+  /**
+   * Bare mode: hide the host chrome (header, sidebar, view toolbar) and let the
+   * single view own the whole page. The postMessage bridge and SSE wiring stay
+   * identical, so `lavs call` still drives the view.
+   */
+  bare?: boolean;
+  /** Bundle to auto-open in bare mode (bundle name or contentType). */
+  bundle?: string | null;
 }
 
-export function buildHostUI({ port }: HostUIOptions): string {
+export function buildHostUI({ port, bare = false, bundle = null }: HostUIOptions): string {
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -238,9 +246,11 @@ export function buildHostUI({ port }: HostUIOptions): string {
       color: var(--text-muted);
       max-width: 380px;
     }
+    /* ── Bare mode: full-bleed view, no host chrome ── */
+    .bare header, .bare aside, .bare .view-toolbar, .bare .empty-state { display: none !important; }
   </style>
 </head>
-<body>
+<body${bare ? ' class="bare"' : ''}>
   <header>
     <span class="logo">LAVS</span>
     <span class="badge">Host</span>
@@ -297,6 +307,8 @@ export function buildHostUI({ port }: HostUIOptions): string {
 
   <script>
     const PORT = ${port};
+    const BARE = ${bare ? 'true' : 'false'};
+    const BARE_BUNDLE = ${JSON.stringify(bundle)};
     let state = { dirs: [], bundles: [] };
     let activeBundleName = null;
 
@@ -415,18 +427,20 @@ export function buildHostUI({ port }: HostUIOptions): string {
       if (!bundle) return;
       activeBundleName = name;
 
-      renderBundles(); // update active highlight
+      if (!BARE) renderBundles(); // update active highlight
 
-      document.getElementById('viewToolbar').style.display = 'flex';
-      document.getElementById('activeBundleName').textContent = bundle.name;
-      document.getElementById('activeEndpointCount').textContent =
-        \`\${bundle.endpoints.length} endpoint\${bundle.endpoints.length !== 1 ? 's' : ''}\`;
+      if (!BARE) {
+        document.getElementById('viewToolbar').style.display = 'flex';
+        document.getElementById('activeBundleName').textContent = bundle.name;
+        document.getElementById('activeEndpointCount').textContent =
+          \`\${bundle.endpoints.length} endpoint\${bundle.endpoints.length !== 1 ? 's' : ''}\`;
+      }
 
       const emptyState = document.getElementById('emptyState');
       const container = document.getElementById('viewContainer');
 
       if (bundle.hasView) {
-        emptyState.style.display = 'none';
+        if (!BARE) emptyState.style.display = 'none';
         // Hide all pooled frames, then show (or create) the selected bundle's frame.
         for (const [bundleName, frame] of bundleFrames) {
           frame.style.display = (bundleName === name) ? 'block' : 'none';
@@ -557,6 +571,11 @@ export function buildHostUI({ port }: HostUIOptions): string {
 
     // ── Auto-select from URL hash ──
     function applyHash() {
+      // Bare mode: open the requested bundle (or the only one) with no chrome.
+      if (BARE_BUNDLE) {
+        const b = state.bundles.find(b => b.name === BARE_BUNDLE || b.contentType === BARE_BUNDLE);
+        if (b) { selectBundle(b.name); return; }
+      }
       const hash = decodeURIComponent(location.hash.replace('#', ''));
       if (hash) {
         const b = state.bundles.find(b => b.name === hash || b.contentType === hash);
