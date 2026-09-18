@@ -1,6 +1,6 @@
 {
   "name": "lavs-view",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "LAVS view-side SDK: postMessage bridge to the LAVS host plus UI command registry (SPEC §12). Ships a prebuilt IIFE (dist/lavs-view.iife.js) for no-build bundle views.",
   "main": "dist/index.js",
   "module": "dist/index.js",
