@@ -1,6 +1,6 @@
 {
   "name": "lavs-runtime",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "LAVS (Local Agent View Service) server-side runtime - manifest loading, handler execution, validation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
