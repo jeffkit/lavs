@@ -30,6 +30,8 @@ export interface BundleInfo {
   registryDir: string;
   hasView: boolean;
   viewEntry?: string; // relative path within bundle dir, e.g. "view/index.html"
+  /** Declared static roots (mount → absolute base dir), from manifest.view.staticRoots. */
+  staticRoots: Array<{ mount: string; base: string }>;
   endpoints: Array<{ id: string; method: string; description?: string }>;
 }
 
@@ -60,6 +62,7 @@ export async function discoverBundles(registryDir: string): Promise<BundleInfo[]
     try {
       const manifest = await loader.load(manifestPath);
       const viewEntry = resolveViewEntry(manifest, dir);
+      const staticRoots = resolveStaticRoots(manifest, dir);
       bundles.push({
         name: manifest.name,
         contentType: manifest.contentType ?? manifest.name,
@@ -67,6 +70,7 @@ export async function discoverBundles(registryDir: string): Promise<BundleInfo[]
         description: manifest.description,
         dir,
         registryDir,
+        staticRoots,
         hasView: !!viewEntry,
         viewEntry,
         endpoints: manifest.endpoints.map((e: Endpoint) => ({
@@ -96,6 +100,70 @@ export async function discoverBundles(registryDir: string): Promise<BundleInfo[]
   return bundles;
 }
 
+const STATIC_MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.wav': 'audio/wav',
+};
+
+/**
+ * Serve one static file with full media semantics (issue #4): Content-Length,
+ * Accept-Ranges, single-part Range → 206/416 (RFC 7233), HEAD. Caller has
+ * already done existence + containment checks.
+ */
+function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse, absPath: string): void {
+  const ext = path.extname(absPath).toLowerCase();
+  const type = STATIC_MIME[ext] || 'application/octet-stream';
+  const size = fs.statSync(absPath).size;
+  res.setHeader('Accept-Ranges', 'bytes');
+
+  const range = req.headers.range;
+  const m = typeof range === 'string' && /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+
+  if (m && (m[1] !== '' || m[2] !== '')) {
+    let start: number, end: number;
+    if (m[1] === '') {
+      // suffix range: last N bytes
+      start = Math.max(0, size - Number(m[2]));
+      end = size - 1;
+    } else {
+      start = Number(m[1]);
+      end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1);
+    }
+    if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
+      res.writeHead(416, { 'Content-Range': `bytes */${size}`, 'Content-Length': '0' });
+      res.end();
+      return;
+    }
+    res.writeHead(206, {
+      'Content-Type': type,
+      'Content-Range': `bytes ${start}-${end}/${size}`,
+      'Content-Length': String(end - start + 1),
+    });
+    if (req.method === 'HEAD') { res.end(); return; }
+    fs.createReadStream(absPath, { start, end }).pipe(res);
+    return;
+  }
+
+  res.writeHead(200, { 'Content-Type': type, 'Content-Length': String(size) });
+  if (req.method === 'HEAD') { res.end(); return; }
+  fs.createReadStream(absPath).pipe(res);
+}
+
 /**
  * Resolve the view entry file for a manifest.
  * Returns a relative path within the bundle dir (e.g. "view/index.html"),
@@ -113,6 +181,33 @@ function resolveViewEntry(manifest: LAVSManifest, bundleDir: string): string | u
     }
   }
   return undefined;
+}
+
+/**
+ * Resolve manifest.view.staticRoots to absolute bases. Mount names must be a
+ * single path segment (no separators, no dot segments) so the URL namespace
+ * stays unambiguous; invalid entries are rejected loudly at discovery time.
+ * A mount that shadows an existing top-level path inside the bundle dir wins
+ * over the bundle dir entry (explicit declaration beats implicit layout).
+ */
+function resolveStaticRoots(manifest: LAVSManifest, bundleDir: string): Array<{ mount: string; base: string }> {
+  const roots = (manifest.view as any)?.staticRoots;
+  if (!Array.isArray(roots) || !roots.length) return [];
+  const seen = new Set<string>();
+  return roots.map((r: any) => {
+    const mount = String(r?.mount ?? '');
+    if (!/^[A-Za-z0-9_-]+$/.test(mount) || mount === '.' || mount === '..') {
+      throw new Error(`Invalid staticRoot mount "${mount}": must be a single URL segment (letters, digits, _, -)`);
+    }
+    if (seen.has(mount)) {
+      throw new Error(`Duplicate staticRoot mount "${mount}"`);
+    }
+    seen.add(mount);
+    if (typeof r?.path !== 'string' || !r.path) {
+      throw new Error(`staticRoot "${mount}" is missing "path"`);
+    }
+    return { mount, base: path.resolve(bundleDir, r.path) };
+  });
 }
 
 // SSE client registry: agentId -> list of SSEResponse
@@ -401,72 +496,38 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
       const bundle = bundles.find((b) => b.name === bundleName);
       if (!bundle) { respondJson(res, 404, { error: 'Bundle not found' }); return; }
 
+      // ── Declared static roots (issue #12) ──
+      // /view/:bundle/<mount>/<rel> where <mount> is declared in
+      // manifest.view.staticRoots. The file is resolved against that root's
+      // base and lexically bounded BY THAT ROOT — `..` cannot escape it, and
+      // different roots cannot reach each other. An explicit mount shadows a
+      // same-named top-level path inside the bundle dir.
+      const firstSeg = filePath.split(/[\\/]/)[0];
+      const root = bundle.staticRoots?.find((r) => r.mount === firstSeg);
+      if (root) {
+        const rel = filePath.slice(firstSeg.length).replace(/^[\\/]/, '') || 'index.html';
+        const target = path.resolve(root.base, rel);
+        if (!target.startsWith(root.base + path.sep) && target !== root.base) {
+          res.writeHead(403); res.end('Forbidden'); return;
+        }
+        if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+          res.writeHead(404); res.end('Not Found'); return;
+        }
+        serveStaticFile(req, res, target);
+        return;
+      }
+
       const absPath = path.resolve(bundle.dir, filePath);
       // Security: ensure the file is within the bundle dir (lexical — see above)
       if (!absPath.startsWith(bundle.dir + path.sep) && absPath !== bundle.dir) {
         res.writeHead(403); res.end('Forbidden'); return;
       }
 
-      if (!fs.existsSync(absPath)) {
+      if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) {
         res.writeHead(404); res.end('Not Found'); return;
       }
 
-      const ext = path.extname(absPath).toLowerCase();
-      const mime: Record<string, string> = {
-        '.html': 'text/html; charset=utf-8',
-        '.js': 'application/javascript',
-        '.css': 'text/css',
-        '.json': 'application/json',
-        '.png': 'image/png',
-        '.svg': 'image/svg+xml',
-        '.ico': 'image/x-icon',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.webp': 'image/webp',
-        '.gif': 'image/gif',
-        '.mp4': 'video/mp4',
-        '.mov': 'video/quicktime',
-        '.webm': 'video/webm',
-        '.mp3': 'audio/mpeg',
-        '.m4a': 'audio/mp4',
-        '.wav': 'audio/wav',
-      };
-      const type = mime[ext] || 'application/octet-stream';
-      const size = fs.statSync(absPath).size;
-      res.setHeader('Accept-Ranges', 'bytes');
-
-      // Single-part Range (RFC 7233): bytes=a-b, bytes=a-, bytes=-N
-      const range = req.headers.range;
-      const m = typeof range === 'string' && /^bytes=(\d*)-(\d*)$/.exec(range.trim());
-
-      if (m && (m[1] !== '' || m[2] !== '')) {
-        let start: number, end: number;
-        if (m[1] === '') {
-          // suffix range: last N bytes
-          start = Math.max(0, size - Number(m[2]));
-          end = size - 1;
-        } else {
-          start = Number(m[1]);
-          end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1);
-        }
-        if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
-          res.writeHead(416, { 'Content-Range': `bytes */${size}`, 'Content-Length': '0' });
-          res.end();
-          return;
-        }
-        res.writeHead(206, {
-          'Content-Type': type,
-          'Content-Range': `bytes ${start}-${end}/${size}`,
-          'Content-Length': String(end - start + 1),
-        });
-        if (req.method === 'HEAD') { res.end(); return; }
-        fs.createReadStream(absPath, { start, end }).pipe(res);
-        return;
-      }
-
-      res.writeHead(200, { 'Content-Type': type, 'Content-Length': String(size) });
-      if (req.method === 'HEAD') { res.end(); return; }
-      fs.createReadStream(absPath).pipe(res);
+      serveStaticFile(req, res, absPath);
       return;
     }
 

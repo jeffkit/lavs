@@ -148,6 +148,24 @@ export interface ViewConfig {
   fallback?: 'list' | 'table' | 'json'; // Fallback display mode
   icon?: string;                    // Icon identifier
   theme?: Record<string, string>;   // Theme variables
+  /**
+   * Declared static roots (issue #12): serve files outside the bundle dir
+   * under a URL mount. Each root is checked lexically against its own
+   * resolved base — `..` cannot escape a root, and roots cannot reach each
+   * other. Optional; without it only bundle-dir files are served.
+   */
+  staticRoots?: StaticRoot[];
+}
+
+/**
+ * A declared static root: URL prefix `mount` maps to directory `path`
+ * (bundle-relative, or absolute).
+ */
+export interface StaticRoot {
+  /** URL prefix under /view/:bundle/ — must not contain path separators. */
+  mount: string;
+  /** Directory served at the mount; bundle-relative or absolute. */
+  path: string;
 }
 
 /**

@@ -114,6 +114,15 @@ ComponentSource = (
 # --- View config ---
 
 
+class StaticRoot(BaseModel):
+    """A declared static root (issue #12): URL prefix `mount` maps to
+    directory `path` (bundle-relative or absolute). Each root is bounded
+    lexically by its own resolved base."""
+
+    mount: str = Field(..., description="URL prefix under /view/:bundle/ — no path separators")
+    path: str = Field(..., description="Directory served at the mount; bundle-relative or absolute")
+
+
 class ViewConfig(BaseModel):
     """UI component configuration."""
 
@@ -123,6 +132,11 @@ class ViewConfig(BaseModel):
     )
     icon: str | None = Field(default=None, description="Icon identifier")
     theme: dict[str, str] | None = Field(default=None, description="Theme CSS variables")
+    static_roots: list[StaticRoot] | None = Field(
+        default=None,
+        alias="staticRoots",
+        description="Declared static roots serving files outside the bundle dir",
+    )
 
 
 # --- Permissions ---

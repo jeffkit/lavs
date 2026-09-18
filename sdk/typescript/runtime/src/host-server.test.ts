@@ -376,3 +376,115 @@ describe('LAVS Host Server — /view media semantics (Range/Content-Length/MIME)
     }
   });
 });
+
+describe('LAVS Host Server — declared static roots (view.staticRoots, issue #12)', () => {
+  let tmpDir: string;
+  let server: LAVSHostServer;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lavs-roots-test-'));
+    // Bundle at <tmp>/project/.lavs ; static roots point OUTSIDE the bundle:
+    //   media → <tmp>/project            (bundle-relative, ..)
+    //   shared → <tmp>/shared            (absolute)
+    const bundleDir = path.join(tmpDir, 'project', '.lavs');
+    await fs.mkdir(path.join(bundleDir, 'view'), { recursive: true });
+    await fs.mkdir(path.join(tmpDir, 'project', 'build'), { recursive: true });
+    await fs.mkdir(path.join(tmpDir, 'shared'), { recursive: true });
+    await fs.writeFile(path.join(bundleDir, 'lavs.json'), JSON.stringify({
+      lavs: '1.0', name: 'film', version: '1.0.0',
+      view: {
+        component: { type: 'local', path: './view/index.html' },
+        staticRoots: [
+          { mount: 'media', path: '..' },
+          { mount: 'shared', path: path.join(tmpDir, 'shared') },
+        ],
+      },
+      endpoints: [],
+    }));
+    await fs.writeFile(path.join(bundleDir, 'view', 'index.html'), '<html>b</html>');
+    await fs.writeFile(path.join(bundleDir, 'view', 'inside.txt'), 'inside-root');
+    // media root (project dir): build/film.mp4 — 400 bytes
+    await fs.mkdir(path.join(tmpDir, 'project', 'build'), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, 'project', 'build', 'film.mp4'), Buffer.alloc(400, 0x64));
+    // shared root: note.txt
+    await fs.writeFile(path.join(tmpDir, 'shared', 'note.txt'), 'shared-note');
+    // outside everything: secret.txt at <tmp> — reachable from NO root
+    await fs.writeFile(path.join(tmpDir, 'secret.txt'), 'top-secret');
+
+    // Registry only scans one level deep: the bundle lives at
+    // <tmp>/project/.lavs, so the registry dir is <tmp>/project.
+    server = await createHostServer({ registryDirs: [path.join(tmpDir, 'project')], port: 0 });
+  });
+
+  afterEach(async () => {
+    await server.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  function raw(method: string, pathname: string, headers: Record<string, string> = {}): Promise<{
+    status: number; headers: http.IncomingHttpHeaders; body: Buffer;
+  }> {
+    return new Promise((resolve, reject) => {
+      const req = http.request({ hostname: '127.0.0.1', port: server!.port, path: pathname, method, headers }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c as Buffer));
+        res.on('end', () => resolve({ status: res.statusCode || 0, headers: res.headers, body: Buffer.concat(chunks) }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  it('serves a file from a bundle-relative root outside the bundle dir', async () => {
+    const r = await raw('GET', '/view/film/media/build/film.mp4');
+    expect(r.status).toBe(200);
+    expect(r.headers['content-type']).toBe('video/mp4');
+    expect(r.headers['content-length']).toBe('400');
+    expect(r.body.length).toBe(400);
+  });
+
+  it('serves an absolute root; Range → 206 with correct slice', async () => {
+    const r = await raw('GET', '/view/film/shared/note.txt', { Range: 'bytes=0-5' });
+    expect(r.status).toBe(206);
+    expect(r.headers['content-range']).toBe('bytes 0-5/11');
+    expect(r.body.toString()).toBe('shared');
+  });
+
+  it('HEAD works on a declared root', async () => {
+    const r = await raw('HEAD', '/view/film/media/build/film.mp4');
+    expect(r.status).toBe(200);
+    expect(r.headers['content-length']).toBe('400');
+    expect(r.body.length).toBe(0);
+  });
+
+  it("`..` cannot escape a declared root → 403", async () => {
+    // media root is <tmp>/project; ../secret.txt escapes it toward <tmp>
+    const r = await raw('GET', '/view/film/media/build/../../secret.txt');
+    expect([403, 404]).toContain(r.status);
+    expect(r.body.toString()).not.toContain('top-secret');
+  });
+
+  it('undeclared escape hatches stay 403 (no implicit widening)', async () => {
+    // "shared" is a declared mount; but /view/film/../secret.txt still cannot escape the bundle dir
+    const r = await raw('GET', '/view/film/../secret.txt');
+    expect([403, 404]).toContain(r.status);
+    expect(r.body.toString()).not.toContain('top-secret');
+  });
+
+  it('undeclared top-level path inside the bundle dir still serves (behavior unchanged)', async () => {
+    const r = await raw('GET', '/view/film/view/inside.txt');
+    expect(r.status).toBe(200);
+    expect(r.body.toString()).toBe('inside-root');
+  });
+
+  it('undeclared mount-like segment falls through to bundle dir → 404 (not served from other roots)', async () => {
+    const r = await raw('GET', '/view/film/unknown/note.txt');
+    expect(r.status).toBe(404);
+  });
+
+  it('mounts cannot reach each other: shared/… cannot traverse into media root', async () => {
+    const r = await raw('GET', '/view/film/shared/../build/film.mp4');
+    // ../build resolves to <tmp>/build — does not exist; must NOT serve the project file
+    expect(r.status).toBe(404);
+  });
+});

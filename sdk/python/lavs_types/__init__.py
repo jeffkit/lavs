@@ -24,6 +24,7 @@ from lavs_types.models import (
     ScriptHandler,
     TypeDefinitions,
     ViewConfig,
+    StaticRoot,
 )
 
 __all__ = [
@@ -38,6 +39,7 @@ __all__ = [
     "MCPHandler",
     "Schema",
     "ViewConfig",
+    "StaticRoot",
     "ComponentSource",
     "CDNComponentSource",
     "NPMComponentSource",
