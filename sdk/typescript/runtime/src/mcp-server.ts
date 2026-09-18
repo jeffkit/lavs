@@ -326,11 +326,13 @@ function formatToolResult(
 function registerGeneratedTool(server: McpServer, genTool: GeneratedTool): void {
   const { tool: toolDef, execute, method } = genTool;
 
-  const inputSchema: Record<string, any> = {};
-  if (toolDef.input_schema.properties) {
-    for (const [key, prop] of Object.entries(toolDef.input_schema.properties)) {
-      inputSchema[key] = toMcpPropertySchema(prop as any);
-    }
+  const required: string[] = (toolDef.input_schema as any).required || [];
+  const inputSchema: Record<string, z.ZodTypeAny> = {};
+  for (const [key, prop] of Object.entries(toolDef.input_schema.properties || {})) {
+    let schema = jsonSchemaToZod(prop as any);
+    const description = (prop as any)?.description;
+    if (description) schema = schema.describe(description);
+    inputSchema[key] = required.includes(key) ? schema : schema.optional();
   }
 
   const endpointId = toolDef.name.replace(/^lavs_(?:[^_]+_)?/, '');
@@ -359,13 +361,50 @@ function registerGeneratedTool(server: McpServer, genTool: GeneratedTool): void 
 }
 
 /**
- * Convert a JSON Schema property to an MCP-compatible Zod-like schema descriptor.
+ * Convert a JSON Schema fragment to a Zod type.
  *
- * The MCP SDK's registerTool accepts a Zod-compatible shape or raw JSON Schema
- * properties. We pass raw JSON Schema objects through since the SDK supports them.
+ * The MCP SDK's `registerTool` requires Zod (a raw shape of Zod types); handing
+ * it plain JSON Schema objects throws
+ * "inputSchema must be a Zod schema or raw shape, received an unrecognized object".
+ * Covers the subset LAVS manifests use; unknown shapes fall back to `z.any()`.
  */
-function toMcpPropertySchema(prop: any): any {
-  return prop;
+export function jsonSchemaToZod(prop: any): z.ZodTypeAny {
+  if (!prop || typeof prop !== 'object') return z.any();
+
+  if (Array.isArray(prop.enum) && prop.enum.length) {
+    if (prop.enum.every((v: unknown) => typeof v === 'string')) {
+      return prop.enum.length === 1
+        ? z.literal(prop.enum[0])
+        : z.enum(prop.enum as [string, ...string[]]);
+    }
+    return z.union(prop.enum.map((v: unknown) => z.literal(v as any)) as any);
+  }
+
+  const union = prop.anyOf || prop.oneOf;
+  if (Array.isArray(union) && union.length) {
+    const variants = union.map((p: any) => jsonSchemaToZod(p));
+    return variants.length === 1 ? variants[0] : z.union(variants as any);
+  }
+
+  switch (prop.type) {
+    case 'string':  return z.string();
+    case 'number':  return z.number();
+    case 'integer': return z.number().int();
+    case 'boolean': return z.boolean();
+    case 'null':    return z.null();
+    case 'array':   return z.array(prop.items ? jsonSchemaToZod(prop.items) : z.any());
+    case 'object': {
+      const required: string[] = prop.required || [];
+      const shape: Record<string, z.ZodTypeAny> = {};
+      for (const [key, value] of Object.entries(prop.properties || {})) {
+        const sub = jsonSchemaToZod(value as any);
+        shape[key] = required.includes(key) ? sub : sub.optional();
+      }
+      return z.object(shape);
+    }
+    default:
+      return z.any();
+  }
 }
 
 /**
