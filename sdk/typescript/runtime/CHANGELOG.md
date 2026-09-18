@@ -1,5 +1,11 @@
 # lavs-runtime
 
+## 0.6.0
+
+### Minor Changes
+
+- aed9dbe: New `lavs-runtime view --bare [bundle]`: host runs full capability (postMessage bridge, /api/call, SSE, /view/\*) but header, sidebar and view toolbar are hidden so a bundle view with its own chrome owns the whole page. Auto-opens the named bundle (name or contentType).
+
 ## 0.5.1
 
 ### Patch Changes
