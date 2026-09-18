@@ -9,23 +9,54 @@
       "id": "getItems",
       "method": "query",
       "description": "List all items",
-      "handler": { "type": "script", "command": "node", "args": ["scripts/get.js"] },
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": [
+          "scripts/get.js"
+        ]
+      },
       "schema": {
-        "output": { "type": "array", "items": { "type": "string" } }
+        "output": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     {
       "id": "addItem",
       "method": "mutation",
       "description": "Add an item. The view auto-refreshes after this.",
-      "handler": { "type": "script", "command": "node", "args": ["scripts/add.js"], "input": "stdin" },
+      "handler": {
+        "type": "script",
+        "command": "node",
+        "args": [
+          "scripts/add.js"
+        ],
+        "input": "stdin"
+      },
       "schema": {
         "input": {
           "type": "object",
-          "required": ["text"],
-          "properties": { "text": { "type": "string" } }
+          "required": [
+            "text"
+          ],
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          }
         },
-        "output": { "type": "object", "properties": { "ok": { "type": "boolean" } } }
+        "output": {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            }
+          }
+        }
       }
     },
     {
@@ -35,10 +66,27 @@
       "schema": {
         "input": {
           "type": "object",
-          "required": ["theme"],
-          "properties": { "theme": { "type": "string", "enum": ["dark", "light"] } }
+          "required": [
+            "theme"
+          ],
+          "properties": {
+            "theme": {
+              "type": "string",
+              "enum": [
+                "dark",
+                "light"
+              ]
+            }
+          }
         }
       }
     }
-  ]
+  ],
+  "view": {
+    "component": {
+      "type": "local",
+      "path": "./view/index.html"
+    },
+    "fallback": "table"
+  }
 }
