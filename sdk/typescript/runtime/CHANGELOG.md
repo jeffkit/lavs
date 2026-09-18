@@ -1,5 +1,11 @@
 # lavs-runtime
 
+## 0.6.1
+
+### Patch Changes
+
+- 91e9d12: Fix: `lavs-runtime serve` / `serve-registry` crashed on any endpoint declaring `schema.input` ("inputSchema must be a Zod schema or raw shape"). Endpoints now convert JSON Schema to Zod properly (string/number/integer/boolean/null/array/object, enum, anyOf/oneOf; unknown → `z.any()`), honouring `required` and keeping descriptions.
+
 ## 0.6.0
 
 ### Minor Changes
