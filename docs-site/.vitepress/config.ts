@@ -43,6 +43,7 @@ export default defineConfig({
         {
           text: 'Bundle',
           items: [
+            { text: 'UI 命令（notify）', link: '/guide/ui-commands' },
             { text: '编写自己的 Bundle', link: '/guide/create-bundle' },
             { text: 'Bundle 注册表', link: '/guide/registry' },
           ],

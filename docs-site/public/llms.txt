@@ -1,0 +1,86 @@
+# LAVS — Local Agent View Service
+
+> LAVS lets a local AI agent expose structured data as interactive UI views in the user's browser, and drive those views in one direction: agent → view. A LAVS "bundle" is a `lavs.json` manifest (endpoints + view) + handler scripts + an optional HTML view. Agents call endpoints via a CLI (`lavs call`) or MCP tools (`lavs_<endpoint>`); views auto-refresh via SSE, and pure UI commands (`notify` endpoints, SPEC §12) reach the view layer without touching data.
+
+Site: https://jeffkit.github.io/lavs/
+Repo: https://github.com/jeffkit/lavs
+License: MIT
+
+## Quick start (from zero)
+
+- 5-minute walkthrough with a runnable demo bundle: https://jeffkit.github.io/lavs/guide/quick-start
+- Source-run alternative: clone https://github.com/jeffkit/lavs then `pnpm install && pnpm build`; demo lives at `examples/quickstart/demo`.
+
+## Install
+
+- npm: `lavs-runtime` (CLI + host + MCP server), `lavs-types`, `lavs-client` (HTTP client), `lavs-view` (view-side SDK, ships a prebuilt IIFE for no-build views).
+- Requires Node.js >= 20.
+
+## Core workflow (agent side)
+
+1. `lavs discover --registry-dir <dir>` — list available bundles/endpoints.
+2. `lavs view --registry-dir <dir>` — start local HTTP host + open the browser view (SSE live).
+3. `lavs call <endpoint> --agent-dir <bundle-dir> --input '<json>'` — query or mutate; mutations auto-refresh the view. stdout is clean JSON.
+4. Optional: `lavs serve --agent-dir <dir>` (single bundle) or `lavs serve-registry` (multi-bundle) expose endpoints as MCP tools `lavs_<endpoint>` for MCP hosts.
+
+## Endpoint methods
+
+- `query` — read data. No view notification.
+- `mutation` — write data. Broadcasts `tool_executed` agent-action; view refreshes.
+- `notify` — pure UI command, no data side effects, `handler` optional. Broadcasts `ui_command` agent-action with `command` + `args`; the view handles known commands locally and MUST fall back to refresh for unknown ones.
+- `subscription` — SSE stream from the view side; not exposed as agent tools.
+
+## Authoring a bundle
+
+- A bundle = `lavs.json` (declare `contentType`, `endpoints`, `view.component`) + handler scripts (plain Node scripts: stdin/args in, JSON to stdout) + optional `view/index.html`.
+- The `view.component` field in the manifest is REQUIRED to get a rendered view (e.g. `{"type":"local","path":"./view/index.html"}`); a view dir alone is not picked up.
+- Handlers: `script` (TS + Python runtimes), `function`/`http`/`mcp` (TS runtime only).
+- Data written by handlers lives under the bundle's own `data/` directory.
+- Guide: https://jeffkit.github.io/lavs/guide/create-bundle
+- Manifest reference: https://jeffkit.github.io/lavs/reference/manifest
+
+## View-side SDK (@lavs/view)
+
+```html
+<script src="lavs-view.iife.js"></script>
+<script>
+  const view = LAVSView.connect({
+    refresh: loadItems,            // data changed (or unknown command) → reload
+    commands: { setTheme(args) { /* ... */ } },  // UI command registry
+  });
+  const items = await view.call('getItems');     // call an endpoint
+</script>
+```
+
+- One-way control invariant: views can call endpoints and react to agent-actions; there is no channel for a view to address the agent.
+- Guide: https://jeffkit.github.io/lavs/guide/ui-commands
+
+## CLI reference
+
+- All commands (`discover` / `call` / `view` / `host` / `daemon` / `init` / `validate` / `serve` / `serve-registry`): https://jeffkit.github.io/lavs/guide/cli
+- CLI vs MCP decision guide: https://jeffkit.github.io/lavs/guide/cli-vs-mcp
+
+## Protocol spec
+
+- Overview: https://jeffkit.github.io/lavs/spec/overview
+- View Dispatch Protocol v1.1 (content-type as primary abstraction): https://jeffkit.github.io/lavs/spec/v1.1-dispatch
+- UI Command Protocol §12 (v1.2-draft, normative source): https://github.com/jeffkit/lavs/blob/main/docs/SPEC.md
+- JSON Schema for lavs.json: https://github.com/jeffkit/lavs/blob/main/schema/lavs-manifest.schema.json
+
+## Official bundles (in repo, `bundles/`)
+
+- `todo-list` — CRUD + priority/tags + `setFilter`/`setCompact` UI commands (reference bundle)
+- `daily-note` — time-series notes, date grouping, full-text search
+- `data-table` — generic sortable/filterable table, CSV export
+- `bookmark` — URL manager with tags and card layout
+
+## Security notes
+
+- ENFORCED: path-traversal checks on script handlers, input JSON-Schema validation, execution timeouts.
+- ADVISORY only (not OS-enforced): `fileAccess`, `networkAccess`, `maxMemory`. Sandbox untrusted bundles with Docker/nsjail.
+- Views must treat `ui_command` args as untrusted input.
+
+## Optional
+
+- Implementation status and honest caveats: https://jeffkit.github.io/lavs/reference/status
+- Bundle registry concept: https://jeffkit.github.io/lavs/guide/registry
