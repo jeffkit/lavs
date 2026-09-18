@@ -5,15 +5,19 @@ Provides manifest loading, validation, permission checking,
 script execution, rate limiting, and tool generation.
 """
 
+from lavs_runtime.host import LavsHost
 from lavs_runtime.loader import ManifestLoader
 from lavs_runtime.permission_checker import PermissionChecker
 from lavs_runtime.rate_limiter import LAVSRateLimiter, RateLimitConfig, RateLimitResult
+from lavs_runtime.runner import EndpointRunner
 from lavs_runtime.script_executor import ScriptExecutor
 from lavs_runtime.tool_generator import ClaudeTool, GeneratedTool, LAVSToolGenerator
 from lavs_runtime.validator import LAVSValidator, ValidationErrorDetail, ValidationResult
 
 __all__ = [
     "ManifestLoader",
+    "LavsHost",
+    "EndpointRunner",
     "LAVSValidator",
     "ValidationResult",
     "ValidationErrorDetail",

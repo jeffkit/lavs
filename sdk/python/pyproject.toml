@@ -24,6 +24,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["lavs_types", "lavs_runtime", "lavs_client"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"lavs_runtime/assets" = "lavs_runtime/assets"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -31,6 +34,9 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"lavs_runtime/host_page.py" = ["E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

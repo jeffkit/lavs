@@ -119,17 +119,21 @@ class ManifestLoader:
             raise LAVSError(LAVSErrorCode.InvalidRequest, "Endpoint missing required field: id")
 
         method = endpoint.get("method")
-        if method not in ("query", "mutation", "subscription"):
+        if method not in ("query", "mutation", "subscription", "notify"):
             raise LAVSError(
                 LAVSErrorCode.InvalidRequest,
-                f"Invalid endpoint method: {method} (must be query, mutation, or subscription)",
+                f"Invalid endpoint method: {method} "
+                f"(must be query, mutation, subscription, or notify)",
             )
 
+        # `notify` endpoints are pure UI commands — handler optional
         if not endpoint.get("handler"):
-            raise LAVSError(
-                LAVSErrorCode.InvalidRequest,
-                f"Endpoint {endpoint['id']} missing required field: handler",
-            )
+            if method != "notify":
+                raise LAVSError(
+                    LAVSErrorCode.InvalidRequest,
+                    f"Endpoint {endpoint['id']} missing required field: handler",
+                )
+            return
 
         self._validate_handler(endpoint["handler"], endpoint["id"])
 
