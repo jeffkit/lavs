@@ -440,7 +440,13 @@ export function buildHostUI({ port }: HostUIOptions): string {
           frame.src = \`/view/\${encodeURIComponent(name)}/\${bundle.viewEntry || 'view/index.html'}\`;
           container.appendChild(frame);
           bundleFrames.set(name, frame);
-          // Track contentWindow → bundleName once the frame has loaded its content.
+          // Register contentWindow → bundleName IMMEDIATELY: contentWindow is
+          // available right after appendChild, while the frame's inline
+          // <script> runs before the load event. Registering only on load
+          // dropped the view's very first lavs-call (issue #6).
+          if (frame.contentWindow) sourceToBundle.set(frame.contentWindow, name);
+          // Keep the load-time registration as a backstop in case the
+          // contentWindow is re-created (e.g. navigation).
           frame.addEventListener('load', () => {
             if (frame.contentWindow) sourceToBundle.set(frame.contentWindow, name);
           });
@@ -491,8 +497,19 @@ export function buildHostUI({ port }: HostUIOptions): string {
       if (!event.data || event.data.type !== 'lavs-call') return;
       const { id, endpoint, params, input } = event.data;
       const source = event.source;
-      const bundleName = source ? sourceToBundle.get(source) : null;
-      if (!bundleName) return;
+      // Resolve the sending iframe: direct map first, then scan pooled frames.
+      // Never drop silently — an unanswered call leaves the view's promise
+      // pending forever with no visible error (issue #6).
+      const bundleName = source
+        ? sourceToBundle.get(source)
+          ?? [...bundleFrames.entries()].find(([, f]) => f.contentWindow === source)?.[0]
+        : null;
+      if (!bundleName) {
+        if (source) {
+          source.postMessage({ type: 'lavs-error', id, error: 'view not registered yet' }, '*');
+        }
+        return;
+      }
 
       try {
         const resp = await fetch(
