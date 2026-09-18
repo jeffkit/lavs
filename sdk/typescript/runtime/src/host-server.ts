@@ -381,9 +381,16 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
       return;
     }
 
-    // ── GET /view/:bundle/* → serve bundle view static files ──
+    // ── GET/HEAD /view/:bundle/* → serve bundle view static files ──
+    // Media semantics (SPEC: host implementation detail): Content-Length,
+    // Accept-Ranges, single-part Range → 206/416 per RFC 7233, so <video>
+    // can seek and report duration.
+    // Security note: the containment check below is LEXICAL (path.resolve).
+    // Symlinks inside the bundle pointing OUTSIDE bundle.dir intentionally
+    // keep working — bundles link media that lives outside the bundle dir.
+    // Do NOT tighten this to a realpath check.
     const viewMatch = pathname.match(/^\/view\/([^/]+)\/(.*)/);
-    if (viewMatch && req.method === 'GET') {
+    if (viewMatch && (req.method === 'GET' || req.method === 'HEAD')) {
       const bundleName = decodeURIComponent(viewMatch[1]);
       const filePath = viewMatch[2] || 'index.html';
       const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
@@ -391,7 +398,7 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
       if (!bundle) { respondJson(res, 404, { error: 'Bundle not found' }); return; }
 
       const absPath = path.resolve(bundle.dir, filePath);
-      // Security: ensure the file is within the bundle dir
+      // Security: ensure the file is within the bundle dir (lexical — see above)
       if (!absPath.startsWith(bundle.dir + path.sep) && absPath !== bundle.dir) {
         res.writeHead(403); res.end('Forbidden'); return;
       }
@@ -409,8 +416,52 @@ export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHo
         '.png': 'image/png',
         '.svg': 'image/svg+xml',
         '.ico': 'image/x-icon',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp',
+        '.gif': 'image/gif',
+        '.mp4': 'video/mp4',
+        '.mov': 'video/quicktime',
+        '.webm': 'video/webm',
+        '.mp3': 'audio/mpeg',
+        '.m4a': 'audio/mp4',
+        '.wav': 'audio/wav',
       };
-      res.writeHead(200, { 'Content-Type': mime[ext] || 'application/octet-stream' });
+      const type = mime[ext] || 'application/octet-stream';
+      const size = fs.statSync(absPath).size;
+      res.setHeader('Accept-Ranges', 'bytes');
+
+      // Single-part Range (RFC 7233): bytes=a-b, bytes=a-, bytes=-N
+      const range = req.headers.range;
+      const m = typeof range === 'string' && /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+
+      if (m && (m[1] !== '' || m[2] !== '')) {
+        let start: number, end: number;
+        if (m[1] === '') {
+          // suffix range: last N bytes
+          start = Math.max(0, size - Number(m[2]));
+          end = size - 1;
+        } else {
+          start = Number(m[1]);
+          end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1);
+        }
+        if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
+          res.writeHead(416, { 'Content-Range': `bytes */${size}`, 'Content-Length': '0' });
+          res.end();
+          return;
+        }
+        res.writeHead(206, {
+          'Content-Type': type,
+          'Content-Range': `bytes ${start}-${end}/${size}`,
+          'Content-Length': String(end - start + 1),
+        });
+        if (req.method === 'HEAD') { res.end(); return; }
+        fs.createReadStream(absPath, { start, end }).pipe(res);
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': type, 'Content-Length': String(size) });
+      if (req.method === 'HEAD') { res.end(); return; }
       fs.createReadStream(absPath).pipe(res);
       return;
     }

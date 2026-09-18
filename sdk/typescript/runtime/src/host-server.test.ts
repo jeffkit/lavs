@@ -256,3 +256,123 @@ describe('LAVS Host Server', () => {
     });
   }
 });
+
+describe('LAVS Host Server — /view media semantics (Range/Content-Length/MIME)', () => {
+  let tmpDir: string;
+  let server: LAVSHostServer;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lavs-media-test-'));
+    const dir = path.join(tmpDir, 'media');
+    await fs.mkdir(path.join(dir, 'view'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'lavs.json'), JSON.stringify({
+      lavs: '1.0', name: 'media', version: '1.0.0',
+      view: { component: { type: 'local', path: './view/index.html' } },
+      endpoints: [],
+    }));
+    await fs.writeFile(path.join(dir, 'view', 'index.html'), '<html></html>');
+    // 1000 bytes of deterministic content
+    await fs.writeFile(path.join(dir, 'view', 'clip.mp4'), Buffer.alloc(1000, 0x61));
+    await fs.writeFile(path.join(dir, 'view', 'poster.jpg'), Buffer.alloc(500, 0x62));
+
+    // Symlink pointing OUTSIDE the bundle dir — must stay readable (lexical
+    // containment check is intentional; see host-server.ts comment).
+    await fs.symlink(path.join(tmpDir, 'outside.mp4'), path.join(dir, 'view', 'linked.mp4'));
+    await fs.writeFile(path.join(tmpDir, 'outside.mp4'), Buffer.alloc(300, 0x63));
+
+    server = await createHostServer({ registryDirs: [tmpDir], port: 0 });
+  });
+
+  afterEach(async () => {
+    await server.close();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  function raw(method: string, pathname: string, headers: Record<string, string> = {}): Promise<{
+    status: number; headers: http.IncomingHttpHeaders; body: Buffer;
+  }> {
+    return new Promise((resolve, reject) => {
+      const req = http.request({ hostname: '127.0.0.1', port: server!.port, path: pathname, method, headers }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c as Buffer));
+        res.on('end', () => resolve({ status: res.statusCode || 0, headers: res.headers, body: Buffer.concat(chunks) }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  it('200 without Range: Content-Length + Accept-Ranges: bytes', async () => {
+    const r = await raw('GET', '/view/media/view/clip.mp4');
+    expect(r.status).toBe(200);
+    expect(r.headers['accept-ranges']).toBe('bytes');
+    expect(r.headers['content-length']).toBe('1000');
+    expect(r.body.length).toBe(1000);
+  });
+
+  it('.mp4 maps to video/mp4, .jpg to image/jpeg', async () => {
+    const v = await raw('HEAD', '/view/media/view/clip.mp4');
+    expect(v.headers['content-type']).toBe('video/mp4');
+    const i = await raw('HEAD', '/view/media/view/poster.jpg');
+    expect(i.headers['content-type']).toBe('image/jpeg');
+  });
+
+  it('bytes=0-99 → 206 with Content-Range and 100 bytes', async () => {
+    const r = await raw('GET', '/view/media/view/clip.mp4', { Range: 'bytes=0-99' });
+    expect(r.status).toBe(206);
+    expect(r.headers['content-range']).toBe('bytes 0-99/1000');
+    expect(r.headers['content-length']).toBe('100');
+    expect(r.body.length).toBe(100);
+  });
+
+  it('bytes=100- (open-ended) and bytes=-100 (suffix)', async () => {
+    const open = await raw('GET', '/view/media/view/clip.mp4', { Range: 'bytes=100-' });
+    expect(open.status).toBe(206);
+    expect(open.headers['content-range']).toBe('bytes 100-999/1000');
+    expect(open.body.length).toBe(900);
+
+    const suffix = await raw('GET', '/view/media/view/clip.mp4', { Range: 'bytes=-100' });
+    expect(suffix.status).toBe(206);
+    expect(suffix.headers['content-range']).toBe('bytes 900-999/1000');
+    expect(suffix.body.length).toBe(100);
+  });
+
+  it('out-of-bounds Range → 416 with Content-Range: bytes */<size>', async () => {
+    const r = await raw('GET', '/view/media/view/clip.mp4', { Range: `bytes=1000-` });
+    expect(r.status).toBe(416);
+    expect(r.headers['content-range']).toBe('bytes */1000');
+    expect(r.body.length).toBe(0);
+  });
+
+  it('HEAD returns full headers and no body', async () => {
+    const r = await raw('HEAD', '/view/media/view/clip.mp4');
+    expect(r.status).toBe(200);
+    expect(r.headers['content-length']).toBe('1000');
+    expect(r.body.length).toBe(0);
+
+    const partial = await raw('HEAD', '/view/media/view/clip.mp4', { Range: 'bytes=0-9' });
+    expect(partial.status).toBe(206);
+    expect(partial.headers['content-length']).toBe('10');
+    expect(partial.body.length).toBe(0);
+  });
+
+  it('symlink inside bundle pointing outside stays readable (regression guard)', async () => {
+    const r = await raw('GET', '/view/media/view/linked.mp4');
+    expect(r.status).toBe(200);
+    expect(r.headers['content-type']).toBe('video/mp4');
+    expect(r.body.length).toBe(300);
+  });
+
+  it('path traversal never serves outside files', async () => {
+    // `..` dot-segments are normalized away by the URL parser before the
+    // route handler sees them; encoded %2e%2e stays literal and resolves
+    // inside the bundle; the lexical containment check catches the rest.
+    // `outside.mp4` (300 bytes of 0x63) lives in tmpDir, outside the bundle —
+    // no request may ever return its content.
+    for (const p of ['/view/media/../outside.mp4', '/view/media/%2e%2e/outside.mp4', '/view/media/....//outside.mp4']) {
+      const r = await raw('GET', p);
+      expect([403, 404]).toContain(r.status);
+      expect(r.body.length === 300 && r.body.every((b) => b === 0x63)).toBe(false);
+    }
+  });
+});
