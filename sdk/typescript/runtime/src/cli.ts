@@ -55,6 +55,8 @@ interface CLIOptions {
   contentType?: string;
   port: number;
   noOpen: boolean;
+  /** view --bare: full-bleed view, no host chrome. */
+  bare?: boolean;
   // daemon
   daemonAction?: DaemonAction;
 }
@@ -85,6 +87,7 @@ function parseArgs(argv: string[]): CLIOptions {
   let contentType: string | undefined;
   let port = DEFAULT_HOST_PORT;
   let noOpen = false;
+  let bare = false;
 
   // For `call` and `view`, the first positional arg after command is optional
   let positionalIndex = 1; // args[positionalIndex] is first positional after command
@@ -121,6 +124,7 @@ function parseArgs(argv: string[]): CLIOptions {
       case '--input':        input       = args[++i]; break;
       case '--port':         port        = parseInt(args[++i], 10) || DEFAULT_HOST_PORT; break;
       case '--no-open':      noOpen      = true; break;
+      case '--bare':         bare        = true; break;
       case '--quiet':        process.env.LAVS_QUIET = '1'; break;
       default:
         console.error(`Unknown option: ${args[i]}`);
@@ -161,7 +165,7 @@ function parseArgs(argv: string[]): CLIOptions {
     process.exit(1);
   }
 
-  return { command: cmd, agentDir, agentId, projectPath, registryDirs, endpoint, input, contentType, port, noOpen, daemonAction };
+  return { command: cmd, agentDir, agentId, projectPath, registryDirs, endpoint, input, contentType, port, noOpen, bare, daemonAction };
 }
 
 function printUsage(): void {
@@ -189,6 +193,7 @@ Options (discover / view):
   --registry-dir <path>    Directory to scan for bundles (default: cwd)
   --port <n>               Host server port (default: ${DEFAULT_HOST_PORT})
   --no-open                Don't auto-open browser (view only)
+  --bare                   Hide host chrome; full-bleed view (view only)
 
 Options (call):
   --agent-dir <path>       Agent directory with lavs.json (default: cwd)
@@ -400,9 +405,9 @@ async function runCall(options: CLIOptions): Promise<void> {
 // ── view ───────────────────────────────────────────────────────────────────
 
 async function runView(options: CLIOptions): Promise<void> {
-  const { registryDirs, port, noOpen, contentType } = options;
+  const { registryDirs, port, noOpen, contentType, bare } = options;
 
-  console.error(`[LAVS] Starting host server on port ${port}...`);
+  console.error(`[LAVS] Starting host server on port ${port}${bare ? ' (bare)' : ''}...`);
   console.error(`[LAVS] Registries: ${registryDirs.join(', ')}`);
 
   const bundles = await discoverBundlesFromDirs(registryDirs);
@@ -412,7 +417,7 @@ async function runView(options: CLIOptions): Promise<void> {
     process.exit(1);
   }
 
-  const host = await createHostServer({ registryDirs, port });
+  const host = await createHostServer({ registryDirs, port, bare, bareBundle: contentType ?? null });
 
   const hash = contentType ? `#${encodeURIComponent(contentType)}` : '';
   const url = `http://localhost:${port}/${hash}`;
