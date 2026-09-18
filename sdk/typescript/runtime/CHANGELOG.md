@@ -1,5 +1,11 @@
 # lavs-runtime
 
+## 0.5.1
+
+### Patch Changes
+
+- db90b0c: Fix: first `lavs-call` from a view was silently dropped. The host UI registered the iframe's contentWindow only on the `load` event, but view scripts run (and call endpoints) during parse — before load. Now: register immediately after `appendChild` (load kept as backstop), fall back to scanning pooled frames, and reply `lavs-error: "view not registered yet"` instead of dropping unmatched calls so view promises always settle.
+
 ## 0.5.0
 
 ### Minor Changes
