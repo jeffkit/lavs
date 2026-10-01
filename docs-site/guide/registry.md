@@ -4,7 +4,9 @@
 
 ---
 
-## 官方 Bundle（随 `lavs-runtime` 内置）
+## 官方 Bundle（随本仓维护，不随 npm 包分发）
+
+官方 bundle 随本仓维护，不随 npm 包分发（`lavs-runtime` 的 `files` 只含 `dist`，bundles 仅存本仓 `bundles/` 目录）。获取方式：把 `bundles/<name>` 复制或软链到你的 registry 目录（如 `.lavs/bundles/`）。
 
 | contentType | 名称 | 说明 |
 |---|---|---|

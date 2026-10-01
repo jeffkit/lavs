@@ -1,11 +1,13 @@
 # LAVS Bundle Registry
 
-> 社区 bundle 注册表。第三方作者在此登记 bundle，让用户通过 `lavs install` 或手动 clone 安装。  
+> 社区 bundle 注册表。第三方作者在此登记 bundle；使用时把 bundle 目录复制或软链到你的 registry 目录（如 `.lavs/bundles/`），由 `lavs-runtime discover` / `serve-registry` 发现。  
 > 维护者：jeffkit | 格式以 [贡献说明](#贡献) 为准
 
 ---
 
-## 官方 Bundle（随 `lavs-runtime` 内置）
+## 官方 Bundle（随本仓维护，不随 npm 包分发）
+
+官方 bundle 随本仓维护，不随 npm 包分发（`lavs-runtime` 的 `files` 只含 `dist`，bundles 仅存本仓 `bundles/` 目录）。获取方式：把 `bundles/<name>` 复制或软链到你的 registry 目录（如 `.lavs/bundles/`）。
 
 | contentType | 名称 | 说明 |
 |---|---|---|
@@ -53,7 +55,7 @@ lavs-bundle-<vendor>-<name>
 
 示例：`lavs-bundle-acme-kanban`、`lavs-bundle-jeffkit-pomodoro`
 
-包的 `main` 或根目录应包含 `lavs.json`，以便 `lavs install` 自动提取。
+包的 `main` 或根目录应包含 `lavs.json`；使用时把包内的 bundle 目录（含 `lavs.json`）复制或软链到 registry 目录即可。
 
 ---
 

@@ -8,7 +8,7 @@
 
 LAVS 让本地 Agent 通过 `lavs.json` 清单暴露 View / Query / Mutation / Subscription，供前端渲染并可双向同步。
 补齐 MCP Tools / Resources 与 A2A 之上「Agent 面孔」这一层。
-本仓含协议规范、JSON Schema，以及 TypeScript / Python SDK（types + runtime + client）；预发布，已在 AgentStudio 集成。
+本仓含协议规范、JSON Schema，以及 TypeScript / Python SDK（TS 四包：types 0.4.0 / runtime 0.8.0 / client 0.3.0 / view 0.2.0；Python `lavs-sdk` 镜像 types/runtime/client）；预发布，已在 AgentStudio 集成。
 
 **技术栈：** TypeScript, pnpm, Python, Pydantic, JSON Schema, MCP
 **主仓库：** `git@github.com:jeffkit/lavs.git`
@@ -58,7 +58,7 @@ platform/lavs/
 │   │   │   ├── subscription-manager.ts    # SSE subscription management
 │   │   │   ├── tool-generator.ts         # Generate AI tools from manifest
 │   │   │   ├── mcp-server.ts             # Expose LAVS as MCP tools (stdio)
-│   │   │   ├── cli.ts                    # `lavs-runtime` CLI (serve/init/validate)
+│   │   │   ├── cli.ts                    # `lavs-runtime` CLI — 9 subcommands (serve/serve-registry/init/validate/discover/call/view/host/daemon)
 │   │   │   └── types.ts                  # Core type definitions
 │   │   └── client/src/                 # Client SDK (published: @lavs/client)
 │   └── python/                         # Python SDK (active)
@@ -72,7 +72,7 @@ platform/lavs/
 └── CLAUDE.md                           # Symlink to AGENTS.md
 ```
 
-The `sdk/` directory is organized by language, each providing types, runtime, and client packages.
+The `sdk/` directory is organized by language. The TypeScript SDK ships four packages (types / runtime / client / view); the Python SDK (`lavs-sdk`) mirrors types / runtime / client.
 
 ## Reference Implementation
 
@@ -89,7 +89,14 @@ The **protocol specification and SDKs (TypeScript + Python) live in THIS reposit
   - `subscription-manager.ts` — SSE subscription management
   - `tool-generator.ts` — Generate AI tools from manifest
   - `mcp-server.ts` — Expose LAVS endpoints as MCP tools (stdio transport)
-  - `cli.ts` — `lavs-runtime` CLI (`serve` / `init` / `validate`)
+  - `cli.ts` — `lavs-runtime` CLI, 9 subcommands: `serve` (MCP server for one
+    agent dir), `serve-registry` (one unified MCP server for all bundles in
+    registry dirs), `init` (scaffold a minimal `lavs.json`), `validate` (load
+    and validate a manifest), `discover` (list bundles in one or more
+    directories), `call` (call an endpoint from the CLI), `view` (start the
+    host for one registry dir and open a bundle), `host` (global multi-dir
+    host, singleton on port 7842), `daemon` (manage the host as a background
+    daemon: install/uninstall/status)
   - `types.ts` — Core type definitions
 
 - **TypeScript client** (`sdk/typescript/client/src/` → published as `@lavs/client`):
@@ -154,7 +161,7 @@ npm access ls-packages lavs-types
 token 失效时 status 输出会先于 publish 给出 hints，便于早期发现。
 
 ### 防御性 publishConfig
-三个 SDK `package.json` 已显式声明 `"publishConfig": { "access": "public" }`，
+四个 SDK `package.json` 已显式声明 `"publishConfig": { "access": "public" }`，
 确保即使 token 改了 npmjs 默认策略，unscoped 包仍按 public 发布。
 
 ## 常用命令

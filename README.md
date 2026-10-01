@@ -246,30 +246,33 @@ View components run in an iframe and communicate via `postMessage`:
 ## Project Structure
 
 ```
-platform/lavs/
+lavs/
 ├── docs/
 │   ├── SPEC.md                    # Full protocol specification
+│   ├── DISPATCH-PROTOCOL.md       # v1.1 dispatch protocol design
 │   └── PROTOCOL-ANALYSIS.md       # Gap analysis & improvement plan
+├── bundles/                       # Official view bundles (todo-list / daily-note / data-table / bookmark)
 ├── sdk/
-│   ├── typescript/                # TypeScript/Node.js SDK
-│   │   ├── types/src/index.ts     # Core type definitions
-│   │   ├── runtime/src/           # Reference runtime (to be extracted)
-│   │   └── client/src/            # Client SDK (to be extracted)
-│   └── python/                    # Python SDK (planned)
-│       ├── lavs_types/            # Type definitions (Pydantic models)
-│       ├── lavs_runtime/          # Reference runtime
-│       └── lavs_client/           # Client SDK
+│   ├── typescript/                # TypeScript SDK
+│   │   ├── types/                 # @lavs/types — core type definitions
+│   │   ├── runtime/               # @lavs/runtime — server-side runtime (loader, executors, MCP server, CLI)
+│   │   ├── client/                # @lavs/client — frontend client SDK
+│   │   └── view/                  # @lavs/view — view-side SDK (postMessage bridge, prebuilt IIFE)
+│   └── python/                    # Python SDK (lavs-sdk: lavs_types / lavs_runtime / lavs_client)
+├── skill/
+│   └── SKILL.md                   # Agent-facing authoring guide
 ├── schema/
 │   └── lavs-manifest.schema.json  # JSON Schema for IDE autocomplete
 ├── examples/
-│   └── jarvis-agent/              # Example agent (planned)
+│   └── quickstart/                # From-zero runnable example
 └── README.md
 ```
 
-The `sdk/` directory is organized by language. Each language provides three packages:
-- **types**: Core protocol type definitions (generated from JSON Schema)
-- **runtime**: Server-side runtime (manifest loading, handler execution, validation)
-- **client**: Client SDK for calling LAVS endpoints from UIs
+The `sdk/` directory is organized by language. The TypeScript SDK ships four published packages; the Python SDK (`lavs-sdk`) mirrors types/runtime/client:
+- **types** (`lavs-types` 0.4.0): Core protocol type definitions (generated from JSON Schema)
+- **runtime** (`lavs-runtime` 0.8.0): Server-side runtime (manifest loading, handler execution, validation)
+- **client** (`lavs-client` 0.3.0): Client SDK for calling LAVS endpoints from UIs
+- **view** (`lavs-view` 0.2.0): View-side SDK — postMessage bridge + UI command registry, prebuilt IIFE for no-build bundle views
 
 ## LAVS vs MCP Resources
 
@@ -312,12 +315,18 @@ LAVS is currently integrated into [AgentStudio](../agentstudio/) via the `featur
 - [x] Extract client as `@lavs/client` npm package (this repo: `sdk/typescript/client`)
 - [x] Python SDK — types (Pydantic) + runtime (loader/validator/permission-checker/rate-limiter/script-executor)
 - [x] Implement `http` handler (TS runtime: `HttpExecutor`)
-- [x] CLI tooling: `lavs-runtime serve` (MCP server) + `init` + `validate`
+- [x] CLI tooling: `lavs-runtime` CLI with 9 subcommands — `serve` (MCP server
+      for one agent dir), `serve-registry` (one MCP server for all bundles in
+      registry dirs), `init` (scaffold a minimal `lavs.json`), `validate`
+      (load and validate a manifest), `discover` (list bundles in registry
+      dirs), `call` (call an endpoint from the CLI), `view` (open a bundle in
+      a local host), `host` (global multi-dir host on port 7842), `daemon`
+      (install/uninstall/status the host as a background service)
 - [x] Reverse MCP expose: `lavs-runtime serve` exposes LAVS endpoints as MCP tools
-- [ ] Implement `mcp` handler type (bridge to external MCP server tools)
+- [x] Implement `mcp` handler type (bridge to external MCP server tools; TS runtime: `McpExecutor`)
 - [ ] Implement `http` handler in the Python runtime
-- [ ] Independent repository and npm/PyPI publishing
+- [x] Independent repository and npm/PyPI publishing
 
 ## License
 
-TBD
+MIT
