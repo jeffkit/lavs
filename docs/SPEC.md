@@ -584,6 +584,7 @@ Permissions have two enforcement levels:
 | Path traversal | **ENFORCED** | Handler cwd/command paths are validated before execution |
 | Input validation | **ENFORCED** | JSON Schema validation on all inputs |
 | maxExecutionTime | **ENFORCED** | Handler killed via SIGTERM/SIGKILL on timeout |
+| Output validation | **ADVISORY** | Output JSON Schema validated; mismatches logged as warning, response NOT blocked |
 | fileAccess | **ADVISORY** | Glob patterns checked at dispatch, NOT at OS/syscall level |
 | networkAccess | **ADVISORY** | Declared for auditing; not enforced at runtime |
 | maxMemory | **ADVISORY** | Not enforced in current runtime |
@@ -599,11 +600,16 @@ Permissions have two enforcement levels:
   - `true` - Allow all network access (discouraged)
   - `["api.example.com"]` - Whitelist specific domains (intent)
 
-- **maxExecutionTime** (ENFORCED): Kill handler if exceeds limit
+- **maxExecutionTime** (ENFORCED): Kill handler if exceeds limit. It is a cap, not a
+  default: a handler-level `timeout` never exceeds it, i.e. the effective timeout is
+  `min(handler.timeout, maxExecutionTime)`, falling back to 30000ms when neither is set
 
 - **maxMemory** (ADVISORY): Memory limit intent (OS-dependent enforcement)
 
-### 6.3 Input Validation
+- **Output validation** (ADVISORY): handler output is validated against `endpoint.schema.output`;
+  mismatches are logged, never raised
+
+### 6.3 Input & Output Validation
 
 Runtime MUST validate inputs against schema before execution:
 
@@ -616,13 +622,21 @@ function validateAndExecute(endpoint, input) {
 
   const result = executeHandler(endpoint.handler, input);
 
+  // Output validation is ADVISORY: log and return, never block the response.
   if (!validate(result, endpoint.schema.output)) {
-    throw new LAVSError(-32603, 'Invalid output from handler');
+    log.warn(`[LAVS] Output validation warning for ${endpoint.id}: invalid output`);
   }
 
   return result;
 }
 ```
+
+Input validation is **ENFORCED**: a schema mismatch rejects the call with `-32602`
+before the handler runs. Output validation is **ADVISORY**: both the TypeScript runtime
+(`tool-generator.ts`) and the Python runtime (`tool_generator.py`) log a warning and
+return the response unchanged rather than raising `-32603`. This deviation from earlier
+spec revisions is deliberate and recorded in `sdk/typescript/runtime/CHANGELOG.md` (0.1.1,
+"make output validation non-blocking").
 
 ### 6.4 Sandboxing
 

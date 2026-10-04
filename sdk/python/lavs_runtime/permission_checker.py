@@ -149,7 +149,8 @@ class PermissionChecker:
         """
         Get effective execution timeout for a handler.
 
-        Priority: handler.timeout > permissions.max_execution_time > default.
+        Priority: handler.timeout capped by permissions.max_execution_time (min);
+        else max_execution_time; else default.
 
         Args:
             handler: Script handler with optional timeout.

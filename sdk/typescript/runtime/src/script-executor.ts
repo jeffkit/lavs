@@ -11,6 +11,7 @@ import {
   LAVSError,
   LAVSErrorCode,
 } from './types';
+import { PermissionChecker } from './permission-checker';
 import { debug } from './logger';
 
 export class ScriptExecutor {
@@ -33,6 +34,13 @@ export class ScriptExecutor {
       input: handler.input,
     });
 
+    // Determine timeout, capped by permissions.maxExecutionTime
+    const timeout = new PermissionChecker().getEffectiveTimeout(
+      handler,
+      context.permissions,
+      context.timeout || 30000
+    );
+
     try {
       // 1. Prepare command and arguments
       const { command, args = [] } = handler;
@@ -41,10 +49,7 @@ export class ScriptExecutor {
       // 2. Prepare environment variables
       const processEnv = this.buildEnvironment(handler, input, context);
 
-      // 3. Determine timeout
-      const timeout = handler.timeout || context.timeout || 30000;
-
-      // 4. Spawn process
+      // 3. Spawn process
       const proc = spawn(command, resolvedArgs, {
         cwd: handler.cwd || context.workdir,
         env: processEnv,
@@ -52,7 +57,7 @@ export class ScriptExecutor {
         stdio: ['pipe', 'pipe', 'pipe'], // stdin, stdout, stderr
       });
 
-      // 5. Send input to stdin if needed
+      // 4. Send input to stdin if needed
       if (handler.input === 'stdin' && input) {
         try {
           proc.stdin.write(JSON.stringify(input));
@@ -62,7 +67,7 @@ export class ScriptExecutor {
         }
       }
 
-      // 6. Capture output and wait for completion
+      // 5. Capture output and wait for completion
       const result = await this.captureOutput(proc, timeout, context.endpointId);
 
       const duration = Date.now() - startTime;
@@ -71,7 +76,7 @@ export class ScriptExecutor {
         exitCode: result.exitCode,
       });
 
-      // 7. Handle non-zero exit code
+      // 6. Handle non-zero exit code
       if (result.exitCode !== 0) {
         throw new LAVSError(
           LAVSErrorCode.HandlerError,
@@ -84,7 +89,7 @@ export class ScriptExecutor {
         );
       }
 
-      // 8. Parse output as JSON
+      // 7. Parse output as JSON
       return this.parseOutput(result.stdout, result.stderr);
     } catch (error: any) {
       if (error instanceof LAVSError) {
@@ -95,7 +100,7 @@ export class ScriptExecutor {
       if (error.code === 'ETIMEDOUT' || error.killed) {
         throw new LAVSError(
           LAVSErrorCode.Timeout,
-          `Script execution timeout after ${handler.timeout || context.timeout || 30000}ms`
+          `Script execution timeout after ${timeout}ms`
         );
       }
 

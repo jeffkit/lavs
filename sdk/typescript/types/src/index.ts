@@ -195,6 +195,8 @@ export type ComponentSource =
  * | maxExecutionTime| ENFORCED    | Script killed via SIGTERM/SIGKILL on timeout    |
  * | maxMemory       | ADVISORY    | Not enforced in current runtime; future: use    |
  * |                 |             | Node.js child_process resource limits           |
+ * | outputValidation| ADVISORY    | Output schema mismatch logs a warning; response |
+ * |                 |             | is still returned                               |
  */
 export interface Permissions {
   fileAccess?: string[];            // Allowed file path patterns (glob) [ADVISORY]
@@ -211,7 +213,7 @@ export interface ExecutionContext {
   agentId: string;                  // Agent ID (for file access)
   workdir: string;                  // Working directory
   permissions: Permissions;         // Permissions to enforce
-  timeout?: number;                 // Timeout override
+  timeout?: number;                 // Default timeout when handler/permissions set none
   env?: Record<string, string>;     // Additional env vars
 }
 

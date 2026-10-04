@@ -13,6 +13,8 @@ from typing import Any
 
 from lavs_types import ExecutionContext, LAVSError, LAVSErrorCode, ScriptHandler
 
+from lavs_runtime.permission_checker import PermissionChecker
+
 
 class ScriptExecutor:
     """
@@ -74,8 +76,8 @@ class ScriptExecutor:
         resolved_args = self._resolve_args(args, input_data)
         env = self._build_environment(handler, input_data, context)
         cwd = handler.cwd or context.workdir
-        timeout_ms = (
-            handler.timeout or context.timeout or (context.permissions.max_execution_time or 30000)
+        timeout_ms = PermissionChecker().get_effective_timeout(
+            handler, context.permissions, context.timeout or 30000
         )
         timeout_sec = timeout_ms / 1000.0
 
