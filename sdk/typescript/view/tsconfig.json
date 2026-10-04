@@ -24,6 +24,6 @@
   "exclude": [
     "node_modules",
     "dist",
-    "src/index.test.ts"
+    "**/*.test.ts"
   ]
 }

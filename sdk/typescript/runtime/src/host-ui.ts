@@ -520,7 +520,7 @@ export function buildHostUI({ port, bare = false, bundle = null }: HostUIOptions
         : null;
       if (!bundleName) {
         if (source) {
-          source.postMessage({ type: 'lavs-error', id, error: 'view not registered yet' }, '*');
+          source.postMessage({ type: 'lavs-error', id, error: 'view not registered yet' }, window.location.origin);
         }
         return;
       }
@@ -535,12 +535,12 @@ export function buildHostUI({ port, bare = false, bundle = null }: HostUIOptions
           source.postMessage(
             resp.ok ? { type: 'lavs-result', id, result: data.result }
                     : { type: 'lavs-error', id, error: data.error },
-            '*'
+            window.location.origin
           );
         }
       } catch (err) {
         if (source) {
-          source.postMessage({ type: 'lavs-error', id, error: String(err) }, '*');
+          source.postMessage({ type: 'lavs-error', id, error: String(err) }, window.location.origin);
         }
       }
     });
@@ -564,7 +564,7 @@ export function buildHostUI({ port, bare = false, bundle = null }: HostUIOptions
         if (!targetBundle) return;
         const frame = bundleFrames.get(targetBundle.name);
         if (frame && frame.contentWindow) {
-          frame.contentWindow.postMessage(payload, '*');
+          frame.contentWindow.postMessage(payload, window.location.origin);
         }
       });
       es.addEventListener('heartbeat', () => {});

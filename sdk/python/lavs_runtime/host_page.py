@@ -109,7 +109,7 @@ _PAGE = """<!DOCTYPE html>
         if (f.contentWindow === source) { bundleName = f.dataset.bundle; break; }
       }
       if (!bundleName) {
-        if (source) source.postMessage({ type: 'lavs-error', id, error: 'view not registered yet' }, '*');
+        if (source) source.postMessage({ type: 'lavs-error', id, error: 'view not registered yet' }, window.location.origin);
         return;
       }
       try {
@@ -117,9 +117,9 @@ _PAGE = """<!DOCTYPE html>
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(input || {}),
         });
-        source.postMessage({ type: 'lavs-result', id, result: data.result }, '*');
+        source.postMessage({ type: 'lavs-result', id, result: data.result }, window.location.origin);
       } catch (err) {
-        source.postMessage({ type: 'lavs-error', id, error: String(err) }, '*');
+        source.postMessage({ type: 'lavs-error', id, error: String(err) }, window.location.origin);
       }
     });
 
@@ -131,7 +131,7 @@ _PAGE = """<!DOCTYPE html>
       const ct = payload.action && payload.action.contentType;
       for (const [name, f] of frames) {
         if (name.startsWith('__src__')) continue;
-        if (f.classList.contains('active')) f.contentWindow.postMessage(payload, '*');
+        if (f.classList.contains('active')) f.contentWindow.postMessage(payload, window.location.origin);
       }
     });
 

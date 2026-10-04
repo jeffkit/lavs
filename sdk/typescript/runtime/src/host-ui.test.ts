@@ -25,3 +25,21 @@ describe('buildHostUI', () => {
     expect(html).toContain("new EventSource('/api/events')");
   });
 });
+
+describe('buildHostUI — postMessage target origin (issue #18)', () => {
+  const html = buildHostUI({ port: 7842 });
+
+  it('never posts with a wildcard target origin', () => {
+    expect(html).not.toMatch(/postMessage\([^;]*?,\s*['"]\*['"]\s*\)/);
+  });
+
+  it('targets window.location.origin', () => {
+    expect(html).toContain('window.location.origin');
+  });
+
+  it('still echoes the caller-supplied id verbatim (host-side pairing unchanged)', () => {
+    expect(html).toContain("{ type: 'lavs-result', id, result: data.result }");
+    expect(html).toContain("{ type: 'lavs-error', id, error: data.error }");
+    expect(html).toContain("{ type: 'lavs-error', id, error: String(err) }");
+  });
+});
