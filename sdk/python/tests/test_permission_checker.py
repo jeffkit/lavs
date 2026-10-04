@@ -74,3 +74,12 @@ def test_get_effective_timeout() -> None:
     handler_no_timeout = ScriptHandler(command="echo")
     timeout = checker.get_effective_timeout(handler_no_timeout, perms)
     assert timeout == 30000  # Permissions used
+
+
+def test_get_effective_timeout_caps_handler_timeout() -> None:
+    """Test permission max caps a longer handler timeout."""
+    checker = PermissionChecker()
+    handler = ScriptHandler(command="echo", timeout=60000)
+    perms = Permissions(max_execution_time=1000)
+
+    assert checker.get_effective_timeout(handler, perms) == 1000

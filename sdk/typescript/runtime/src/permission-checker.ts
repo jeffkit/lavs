@@ -144,7 +144,8 @@ export class PermissionChecker {
 
   /**
    * Get the effective execution timeout for a handler.
-   * Priority: handler.timeout > permissions.maxExecutionTime > default (30000ms)
+   * handler.timeout capped by permissions.maxExecutionTime via Math.min();
+   * else maxExecutionTime; else default (30000ms)
    *
    * @param handler - Script handler with optional timeout
    * @param permissions - Permission constraints with optional maxExecutionTime
@@ -156,7 +157,7 @@ export class PermissionChecker {
     permissions: Permissions,
     defaultTimeout: number = 30000
   ): number {
-    // Handler-level timeout takes precedence
+    // Handler-level timeout, capped by the permission max
     if (handler.timeout != null && handler.timeout > 0) {
       // But cannot exceed permission-level max
       if (permissions.maxExecutionTime != null && permissions.maxExecutionTime > 0) {

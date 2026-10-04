@@ -246,7 +246,9 @@ class ExecutionContext(BaseModel):
     agent_id: str = Field(..., alias="agentId", description="Agent ID")
     workdir: str = Field(..., description="Working directory")
     permissions: Permissions = Field(..., description="Permissions to enforce")
-    timeout: int | None = Field(default=None, description="Timeout override (ms)")
+    timeout: int | None = Field(
+        default=None, description="Default timeout (ms) when handler/permissions set none"
+    )
     env: dict[str, str] | None = Field(default=None, description="Additional env vars")
 
     model_config = {"populate_by_name": True}
