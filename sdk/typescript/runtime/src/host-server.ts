@@ -19,6 +19,7 @@ import { ManifestLoader } from './loader';
 import { LAVSToolGenerator } from './tool-generator';
 import { LAVSManifest, Endpoint } from './types';
 import { buildHostUI } from './host-ui';
+import * as logger from './logger';
 export { buildHostUI } from './host-ui';
 
 export interface BundleInfo {
@@ -26,12 +27,16 @@ export interface BundleInfo {
   contentType: string;
   version: string;
   description?: string;
+  /** Bundle directory: absolute within the process, registry-relative in `/api/discover` responses. */
   dir: string;
-  /** The registry directory this bundle was discovered from. */
+  /**
+   * The registry directory this bundle was discovered from: absolute within
+   * the process, a basename grouping label in `/api/discover` responses.
+   */
   registryDir: string;
   hasView: boolean;
   viewEntry?: string; // relative path within bundle dir, e.g. "view/index.html"
-  /** Declared static roots (mount → absolute base dir), from manifest.view.staticRoots. */
+  /** Declared static roots (mount → base dir), from manifest.view.staticRoots. */
   staticRoots: Array<{ mount: string; base: string }>;
   endpoints: Array<{ id: string; method: string; description?: string }>;
 }
@@ -44,6 +49,10 @@ export interface LAVSHostOptions {
   bare?: boolean;
   /** Bundle to auto-open in bare mode (bundle name or contentType). */
   bareBundle?: string | null;
+  /** Extra origins allowed to call /api/* and /view/* cross-origin. '*' allows any. */
+  allowOrigins?: string[];
+  /** Mount manifest.view.staticRoots whose path is absolute (default: false). */
+  allowAbsoluteStaticRoots?: boolean;
 }
 
 /**
@@ -52,7 +61,10 @@ export interface LAVSHostOptions {
  *  1. registryDir/lavs.json            (single-bundle mode)
  *  2. registryDir/<bundle>/lavs.json   (multi-bundle registry mode)
  */
-export async function discoverBundles(registryDir: string): Promise<BundleInfo[]> {
+export async function discoverBundles(
+  registryDir: string,
+  options?: { allowAbsoluteStaticRoots?: boolean }
+): Promise<BundleInfo[]> {
   const loader = new ManifestLoader();
   const bundles: BundleInfo[] = [];
 
@@ -63,7 +75,9 @@ export async function discoverBundles(registryDir: string): Promise<BundleInfo[]
     try {
       const manifest = await loader.load(manifestPath);
       const viewEntry = resolveViewEntry(manifest, dir);
-      const staticRoots = resolveStaticRoots(manifest, dir);
+      const staticRoots = resolveStaticRoots(manifest, dir, {
+        allowAbsoluteStaticRoots: options?.allowAbsoluteStaticRoots === true,
+      });
       bundles.push({
         name: manifest.name,
         contentType: manifest.contentType ?? manifest.name,
@@ -190,25 +204,86 @@ function resolveViewEntry(manifest: LAVSManifest, bundleDir: string): string | u
  * stays unambiguous; invalid entries are rejected loudly at discovery time.
  * A mount that shadows an existing top-level path inside the bundle dir wins
  * over the bundle dir entry (explicit declaration beats implicit layout).
+ *
+ * An absolute `path` reaches outside the bundle directory, so it is only
+ * mounted when the host explicitly opts in (`allowAbsoluteStaticRoots` /
+ * `--allow-absolute-static-roots`). Otherwise that mount is skipped with a
+ * log line — not thrown, because discovery swallows manifest errors and the
+ * whole bundle would silently disappear.
  */
-function resolveStaticRoots(manifest: LAVSManifest, bundleDir: string): Array<{ mount: string; base: string }> {
+function resolveStaticRoots(
+  manifest: LAVSManifest,
+  bundleDir: string,
+  opts: { allowAbsoluteStaticRoots: boolean }
+): Array<{ mount: string; base: string }> {
   const roots = (manifest.view as any)?.staticRoots;
   if (!Array.isArray(roots) || !roots.length) return [];
   const seen = new Set<string>();
-  return roots.map((r: any) => {
-    const mount = String(r?.mount ?? '');
-    if (!/^[A-Za-z0-9_-]+$/.test(mount) || mount === '.' || mount === '..') {
-      throw new Error(`Invalid staticRoot mount "${mount}": must be a single URL segment (letters, digits, _, -)`);
-    }
-    if (seen.has(mount)) {
-      throw new Error(`Duplicate staticRoot mount "${mount}"`);
-    }
-    seen.add(mount);
-    if (typeof r?.path !== 'string' || !r.path) {
-      throw new Error(`staticRoot "${mount}" is missing "path"`);
-    }
-    return { mount, base: path.resolve(bundleDir, r.path) };
-  });
+  return roots
+    .map((r: any): { mount: string; base: string } | null => {
+      const mount = String(r?.mount ?? '');
+      if (!/^[A-Za-z0-9_-]+$/.test(mount) || mount === '.' || mount === '..') {
+        throw new Error(`Invalid staticRoot mount "${mount}": must be a single URL segment (letters, digits, _, -)`);
+      }
+      if (seen.has(mount)) {
+        throw new Error(`Duplicate staticRoot mount "${mount}"`);
+      }
+      seen.add(mount);
+      if (typeof r?.path !== 'string' || !r.path) {
+        throw new Error(`staticRoot "${mount}" is missing "path"`);
+      }
+      if (path.isAbsolute(r.path) && !opts.allowAbsoluteStaticRoots) {
+        logger.debug(
+          `[LAVS] staticRoot "${mount}" skipped: absolute path "${r.path}" requires allowAbsoluteStaticRoots / --allow-absolute-static-roots`
+        );
+        return null;
+      }
+      return { mount, base: path.resolve(bundleDir, r.path) };
+    })
+    .filter((r): r is { mount: string; base: string } => r !== null);
+}
+
+/** Hostnames that can only refer to the machine the request already reached. */
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
+
+/**
+ * Whether `Origin` refers to this host itself. Derived from the request's
+ * `Host` header because the host may be mounted by an embedder on any port
+ * (createHostHandler has no port option). The origin's hostname must also be
+ * a loopback name, so a forged Host/Origin pair (DNS rebinding) is not
+ * treated as same-origin.
+ */
+function isSelfOrigin(origin: string, req: http.IncomingMessage): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (!LOOPBACK_HOSTNAMES.has(hostname)) return false;
+  const host = req.headers.host;
+  return typeof host === 'string' && parsed.host.toLowerCase() === host.toLowerCase();
+}
+
+/** Paths guarded against cross-origin requests (issue #17). */
+function isGuardedPath(pathname: string): boolean {
+  return /^\/api(\/|$)/.test(pathname) || /^\/view(\/|$)/.test(pathname);
+}
+
+/**
+ * Strip absolute filesystem paths from a bundle before it crosses the HTTP
+ * boundary: `dir` becomes registry-relative, `registryDir` a basename
+ * grouping label, and static root bases bundle-relative. In-process bundle
+ * infos keep their absolute paths (file serving needs them).
+ */
+function toDiscoverPayload(b: BundleInfo): BundleInfo {
+  return {
+    ...b,
+    dir: path.relative(b.registryDir, b.dir) || '.',
+    registryDir: path.basename(b.registryDir) || '/',
+    staticRoots: b.staticRoots.map((r) => ({ mount: r.mount, base: path.relative(b.dir, r.base) || '.' })),
+  };
 }
 
 // SSE client registry: agentId -> list of SSEResponse
@@ -237,11 +312,14 @@ export interface LAVSHostServer {
  * Discover bundles from multiple registry directories.
  * Deduplicates by bundle name (first occurrence wins).
  */
-export async function discoverBundlesFromDirs(registryDirs: string[]): Promise<BundleInfo[]> {
+export async function discoverBundlesFromDirs(
+  registryDirs: string[],
+  options?: { allowAbsoluteStaticRoots?: boolean }
+): Promise<BundleInfo[]> {
   const seen = new Set<string>();
   const result: BundleInfo[] = [];
   for (const dir of registryDirs) {
-    const bundles = await discoverBundles(dir);
+    const bundles = await discoverBundles(dir, options);
     for (const b of bundles) {
       if (!seen.has(b.name)) {
         seen.add(b.name);
@@ -270,8 +348,13 @@ function createHostContext(options: {
   port?: number;
   bare?: boolean;
   bareBundle?: string | null;
+  allowOrigins?: string[];
+  allowAbsoluteStaticRoots?: boolean;
 }): HostContext {
   const { port = 0, bare, bareBundle } = options;
+  const allowOrigins = options.allowOrigins ?? [];
+  const allowAnyOrigin = allowOrigins.includes('*');
+  const allowAbsoluteStaticRoots = options.allowAbsoluteStaticRoots === true;
 
   // Mutable registry dirs — managed via /api/registries at runtime
   let currentRegistryDirs: string[] = [...options.registryDirs];
@@ -320,10 +403,26 @@ function createHostContext(options: {
     const url = new URL(req.url || '/', `http://localhost:${port}`);
     const pathname = url.pathname;
 
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Trust boundary (issue #17): only same-origin and origin-less clients
+    // (curl / CLI / MCP) reach /api/* and /view/* by default. A cross-origin
+    // request is refused outright unless its Origin was allowed explicitly;
+    // the host NEVER answers with a blanket `Access-Control-Allow-Origin: *`.
+    const origin = req.headers.origin;
+    const crossOrigin = typeof origin === 'string' && origin.length > 0 && !isSelfOrigin(origin, req);
+    const originAllowed = crossOrigin && (allowAnyOrigin || allowOrigins.includes(origin!));
+
+    if (crossOrigin && !originAllowed && isGuardedPath(pathname)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden');
+      return;
+    }
+
+    if (originAllowed) {
+      res.setHeader('Access-Control-Allow-Origin', allowAnyOrigin ? '*' : origin!);
+      if (!allowAnyOrigin) res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    }
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -370,8 +469,8 @@ function createHostContext(options: {
 
     // ── GET /api/discover → list bundles (dynamic, uses currentRegistryDirs) ──
     if (pathname === '/api/discover' && req.method === 'GET') {
-      const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
-      respondJson(res, 200, bundles);
+      const bundles = await discoverBundlesFromDirs(currentRegistryDirs, { allowAbsoluteStaticRoots });
+      respondJson(res, 200, bundles.map(toDiscoverPayload));
       return;
     }
 
@@ -379,7 +478,7 @@ function createHostContext(options: {
     const manifestMatch = pathname.match(/^\/api\/manifest\/([^/]+)$/);
     if (manifestMatch && req.method === 'GET') {
       const bundleName = decodeURIComponent(manifestMatch[1]);
-      const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
+      const bundles = await discoverBundlesFromDirs(currentRegistryDirs, { allowAbsoluteStaticRoots });
       const bundle = bundles.find((b) => b.name === bundleName);
       if (!bundle) { respondJson(res, 404, { error: `Bundle '${bundleName}' not found` }); return; }
       const loader = new ManifestLoader();
@@ -400,7 +499,7 @@ function createHostContext(options: {
         try { input = JSON.parse(body); } catch { /* ignore */ }
       }
 
-      const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
+      const bundles = await discoverBundlesFromDirs(currentRegistryDirs, { allowAbsoluteStaticRoots });
       const bundle = bundles.find((b) => b.name === bundleName);
       if (!bundle) { respondJson(res, 404, { error: `Bundle '${bundleName}' not found` }); return; }
 
@@ -457,7 +556,7 @@ function createHostContext(options: {
         } catch { /* ignore */ }
       }
       // Resolve contentType so the SSE payload carries the correct routing key.
-      const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
+      const bundles = await discoverBundlesFromDirs(currentRegistryDirs, { allowAbsoluteStaticRoots });
       const bundle = bundles.find((b) => b.name === bundleName);
       broadcastAgentAction(
         bundleName,
@@ -508,7 +607,7 @@ function createHostContext(options: {
     if (viewMatch && (req.method === 'GET' || req.method === 'HEAD')) {
       const bundleName = decodeURIComponent(viewMatch[1]);
       const filePath = viewMatch[2] || 'index.html';
-      const bundles = await discoverBundlesFromDirs(currentRegistryDirs);
+      const bundles = await discoverBundlesFromDirs(currentRegistryDirs, { allowAbsoluteStaticRoots });
       const bundle = bundles.find((b) => b.name === bundleName);
       if (!bundle) { respondJson(res, 404, { error: 'Bundle not found' }); return; }
 
@@ -569,8 +668,15 @@ function createHostContext(options: {
  * Create and start the LAVS host HTTP server.
  */
 export async function createHostServer(options: LAVSHostOptions): Promise<LAVSHostServer> {
-  const { port, bare, bareBundle } = options;
-  const ctx = createHostContext({ registryDirs: options.registryDirs, port, bare, bareBundle });
+  const { port, bare, bareBundle, allowOrigins, allowAbsoluteStaticRoots } = options;
+  const ctx = createHostContext({
+    registryDirs: options.registryDirs,
+    port,
+    bare,
+    bareBundle,
+    allowOrigins,
+    allowAbsoluteStaticRoots,
+  });
   const { handleRequest } = ctx;
 
   const server = http.createServer(async (req, res) => {
@@ -619,12 +725,18 @@ export async function createHostHandler(options: {
   bare?: boolean;
   /** Bundle (name or contentType) to auto-open in the host UI. */
   bundle?: string | null;
+  /** Extra origins allowed to call /api/* and /view/* cross-origin. '*' allows any. */
+  allowOrigins?: string[];
+  /** Mount manifest.view.staticRoots whose path is absolute (default: false). */
+  allowAbsoluteStaticRoots?: boolean;
 }): Promise<LAVSHostHandler> {
   const rawPrefix = options.prefix && options.prefix !== '/' ? options.prefix.replace(/\/+$/, '') : '';
   const ctx = createHostContext({
     registryDirs: options.registryDirs,
     bare: options.bare,
     bareBundle: options.bundle ?? null,
+    allowOrigins: options.allowOrigins,
+    allowAbsoluteStaticRoots: options.allowAbsoluteStaticRoots,
   });
   const handler = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     if (rawPrefix) {

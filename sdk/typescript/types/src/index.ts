@@ -164,7 +164,12 @@ export interface ViewConfig {
 export interface StaticRoot {
   /** URL prefix under /view/:bundle/ — must not contain path separators. */
   mount: string;
-  /** Directory served at the mount; bundle-relative or absolute. */
+  /**
+   * Directory served at the mount; bundle-relative, or absolute. An absolute
+   * path escapes the bundle dir, so the host mounts it only when explicitly
+   * allowed (`allowAbsoluteStaticRoots` / `--allow-absolute-static-roots`);
+   * by default such a mount is skipped.
+   */
   path: string;
 }
 

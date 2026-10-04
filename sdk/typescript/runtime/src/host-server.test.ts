@@ -13,7 +13,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import http from 'http';
-import { createHostServer, createHostHandler, discoverBundlesFromDirs, LAVSHostServer } from './host-server';
+import { createHostServer, createHostHandler, discoverBundlesFromDirs, LAVSHostServer, LAVSHostHandler } from './host-server';
 
 describe('LAVS Host Server', () => {
   let tmpDir: string;
@@ -380,6 +380,7 @@ describe('LAVS Host Server — /view media semantics (Range/Content-Length/MIME)
 describe('LAVS Host Server — declared static roots (view.staticRoots, issue #12)', () => {
   let tmpDir: string;
   let server: LAVSHostServer;
+  let optInServer: LAVSHostServer | undefined;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lavs-roots-test-'));
@@ -418,14 +419,26 @@ describe('LAVS Host Server — declared static roots (view.staticRoots, issue #1
 
   afterEach(async () => {
     await server.close();
+    if (optInServer) await optInServer.close();
+    optInServer = undefined;
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  function raw(method: string, pathname: string, headers: Record<string, string> = {}): Promise<{
+  /** Start a second host with absolute static roots explicitly enabled (issue #17). */
+  async function startOptInHost(): Promise<LAVSHostServer> {
+    optInServer = await createHostServer({
+      registryDirs: [path.join(tmpDir, 'project')],
+      port: 0,
+      allowAbsoluteStaticRoots: true,
+    });
+    return optInServer;
+  }
+
+  function raw(method: string, pathname: string, headers: Record<string, string> = {}, port = server.port): Promise<{
     status: number; headers: http.IncomingHttpHeaders; body: Buffer;
   }> {
     return new Promise((resolve, reject) => {
-      const req = http.request({ hostname: '127.0.0.1', port: server!.port, path: pathname, method, headers }, (res) => {
+      const req = http.request({ hostname: '127.0.0.1', port, path: pathname, method, headers }, (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (c) => chunks.push(c as Buffer));
         res.on('end', () => resolve({ status: res.statusCode || 0, headers: res.headers, body: Buffer.concat(chunks) }));
@@ -443,8 +456,15 @@ describe('LAVS Host Server — declared static roots (view.staticRoots, issue #1
     expect(r.body.length).toBe(400);
   });
 
-  it('serves an absolute root; Range → 206 with correct slice', async () => {
-    const r = await raw('GET', '/view/film/shared/note.txt', { Range: 'bytes=0-5' });
+  it('does not mount an absolute root by default (needs an explicit opt-in)', async () => {
+    const r = await raw('GET', '/view/film/shared/note.txt');
+    expect([403, 404]).toContain(r.status);
+    expect(r.body.toString()).not.toContain('shared-note');
+  });
+
+  it('serves an absolute root when opted in; Range → 206 with correct slice', async () => {
+    const host = await startOptInHost();
+    const r = await raw('GET', '/view/film/shared/note.txt', { Range: 'bytes=0-5' }, host.port);
     expect(r.status).toBe(206);
     expect(r.headers['content-range']).toBe('bytes 0-5/11');
     expect(r.body.toString()).toBe('shared');
@@ -483,9 +503,212 @@ describe('LAVS Host Server — declared static roots (view.staticRoots, issue #1
   });
 
   it('mounts cannot reach each other: shared/… cannot traverse into media root', async () => {
-    const r = await raw('GET', '/view/film/shared/../build/film.mp4');
+    const host = await startOptInHost();
+    const r = await raw('GET', '/view/film/shared/../build/film.mp4', {}, host.port);
     // ../build resolves to <tmp>/build — does not exist; must NOT serve the project file
     expect(r.status).toBe(404);
+  });
+});
+
+describe('LAVS Host Server — host trust boundary (issue #17)', () => {
+  const EVIL_ORIGIN = 'http://evil.example';
+
+  let tmpDir: string;
+  let bundleDir: string;
+  let server: LAVSHostServer | undefined;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lavs-issue17-'));
+    bundleDir = path.join(tmpDir, 'sec');
+    await fs.mkdir(path.join(bundleDir, 'view'), { recursive: true });
+    await fs.mkdir(path.join(bundleDir, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(bundleDir, 'data'), { recursive: true });
+    await fs.mkdir(path.join(tmpDir, 'absroot'), { recursive: true });
+
+    // Lives OUTSIDE the bundle dir, reachable only via the absolute root below.
+    await fs.writeFile(path.join(tmpDir, 'absroot', 'secret.txt'), 'abs-root-secret');
+    // Reachable via the bundle-relative root ('..' → <tmp>/project).
+    await fs.mkdir(path.join(tmpDir, 'project'), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, 'project', 'ok.txt'), 'relative-root-ok');
+
+    await fs.writeFile(
+      path.join(bundleDir, 'lavs.json'),
+      JSON.stringify({
+        lavs: '1.0',
+        name: 'sec',
+        version: '1.0.0',
+        view: {
+          component: { type: 'local', path: './view/index.html' },
+          staticRoots: [
+            { mount: 'abs', path: path.join(tmpDir, 'absroot') },
+            { mount: 'rel', path: '..' },
+          ],
+        },
+        endpoints: [
+          {
+            id: 'touch',
+            method: 'mutation',
+            description: 'writes a file — must not run for a blocked request',
+            handler: { type: 'script', command: 'node', args: ['scripts/touch.js'], input: 'stdin' },
+          },
+        ],
+      })
+    );
+    await fs.writeFile(path.join(bundleDir, 'view', 'index.html'), '<html>sec</html>');
+    await fs.writeFile(
+      path.join(bundleDir, 'scripts', 'touch.js'),
+      `const fs=require('fs');fs.writeFileSync(require('path').join(__dirname,'..','data','hit.txt'),'written');console.log('{"ok":true}');`
+    );
+  });
+
+  afterEach(async () => {
+    if (server) await server.close();
+    server = undefined;
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  function raw(
+    method: string,
+    pathname: string,
+    opts: { headers?: Record<string, string>; body?: string } = {}
+  ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        { hostname: '127.0.0.1', port: server!.port, path: pathname, method, headers: opts.headers ?? {} },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c) => chunks.push(c as Buffer));
+          res.on('end', () => resolve({ status: res.statusCode || 0, headers: res.headers, body: Buffer.concat(chunks) }));
+        }
+      );
+      req.on('error', reject);
+      if (opts.body) req.write(opts.body);
+      req.end();
+    });
+  }
+
+  const touched = () => fs
+    .stat(path.join(bundleDir, 'data', 'hit.txt'))
+    .then(() => true)
+    .catch(() => false);
+
+  // ── 1. CORS default closed: cross-origin calls to /api/* and /view/* ──
+
+  describe('cross-origin requests are rejected unless allowOrigins is set', () => {
+    beforeEach(async () => {
+      server = await createHostServer({ registryDirs: [tmpDir], port: 0 });
+    });
+
+    it('GET /api/discover with a foreign Origin → 403, no ACAO header', async () => {
+      const r = await raw('GET', '/api/discover', { headers: { Origin: EVIL_ORIGIN } });
+      expect(r.status).toBe(403);
+      expect(r.headers['access-control-allow-origin']).toBeUndefined();
+    });
+
+    it('POST /api/call/:bundle/:endpoint with a foreign Origin → 403 and handler never runs', async () => {
+      const r = await raw('POST', '/api/call/sec/touch', {
+        headers: { Origin: EVIL_ORIGIN, 'Content-Type': 'text/plain' }, // simple request: no preflight
+        body: '{}',
+      });
+      expect(r.status).toBe(403);
+      expect(await touched()).toBe(false);
+    });
+
+    it('GET /view/:bundle/* with a foreign Origin → 403', async () => {
+      const r = await raw('GET', '/view/sec/view/index.html', { headers: { Origin: EVIL_ORIGIN } });
+      expect(r.status).toBe(403);
+    });
+
+    it('OPTIONS preflight from a foreign Origin is not answered with CORS headers', async () => {
+      const r = await raw('OPTIONS', '/api/call/sec/touch', {
+        headers: { Origin: EVIL_ORIGIN, 'Access-Control-Request-Method': 'POST' },
+      });
+      expect(r.status).toBe(403);
+      expect(r.headers['access-control-allow-origin']).toBeUndefined();
+    });
+
+    it('empty Origin (curl / CLI / MCP) still works', async () => {
+      const r = await raw('GET', '/api/discover');
+      expect(r.status).toBe(200);
+    });
+
+    it('same-origin (own 127.0.0.1 port) still works', async () => {
+      const origin = `http://127.0.0.1:${server!.port}`;
+      const r = await raw('GET', '/api/discover', { headers: { Origin: origin } });
+      expect(r.status).toBe(200);
+    });
+
+    it('a forged Host + Origin pair is not treated as same-origin (DNS rebinding)', async () => {
+      const r = await raw('GET', '/api/discover', {
+        headers: { Host: 'evil.example', Origin: `http://evil.example` },
+      });
+      expect(r.status).toBe(403);
+    });
+  });
+
+  // ── 2. Absolute staticRoots are not mounted by default ──
+
+  describe('absolute staticRoots require an explicit opt-in', () => {
+    beforeEach(async () => {
+      server = await createHostServer({ registryDirs: [tmpDir], port: 0 });
+    });
+
+    it('does NOT serve an absolute root by default', async () => {
+      const r = await raw('GET', '/view/sec/abs/secret.txt');
+      expect([403, 404]).toContain(r.status);
+      expect(r.body.toString()).not.toContain('abs-root-secret');
+    });
+
+    it('still serves a bundle-relative root by default (issue #12 unchanged)', async () => {
+      const r = await raw('GET', '/view/sec/rel/project/ok.txt');
+      expect(r.status).toBe(200);
+      expect(r.body.toString()).toBe('relative-root-ok');
+    });
+  });
+
+  // ── 3. /api/discover must not leak absolute paths ──
+
+  describe('/api/discover response', () => {
+    beforeEach(async () => {
+      server = await createHostServer({ registryDirs: [tmpDir], port: 0 });
+    });
+
+    it('contains no absolute filesystem path', async () => {
+      const r = await raw('GET', '/api/discover');
+      const body = r.body.toString();
+      expect(body).not.toContain(tmpDir);
+      const bundle = JSON.parse(body)[0];
+      expect(path.isAbsolute(bundle.dir)).toBe(false);
+      expect(path.isAbsolute(bundle.registryDir)).toBe(false);
+      for (const root of bundle.staticRoots) {
+        expect(path.isAbsolute(root.base)).toBe(false);
+      }
+    });
+  });
+
+  // ── 4. Explicit opt-ins ──
+
+  describe('explicit opt-ins re-enable the old behavior', () => {
+    it('allowOrigins echoes the requesting origin', async () => {
+      server = await createHostServer({ registryDirs: [tmpDir], port: 0, allowOrigins: [EVIL_ORIGIN] });
+      const r = await raw('GET', '/api/discover', { headers: { Origin: EVIL_ORIGIN } });
+      expect(r.status).toBe(200);
+      expect(r.headers['access-control-allow-origin']).toBe(EVIL_ORIGIN);
+    });
+
+    it("allowOrigins containing '*' answers with ACAO: *", async () => {
+      server = await createHostServer({ registryDirs: [tmpDir], port: 0, allowOrigins: ['*'] });
+      const r = await raw('GET', '/api/discover', { headers: { Origin: EVIL_ORIGIN } });
+      expect(r.status).toBe(200);
+      expect(r.headers['access-control-allow-origin']).toBe('*');
+    });
+
+    it('allowAbsoluteStaticRoots mounts an absolute root again', async () => {
+      server = await createHostServer({ registryDirs: [tmpDir], port: 0, allowAbsoluteStaticRoots: true });
+      const r = await raw('GET', '/view/sec/abs/secret.txt');
+      expect(r.status).toBe(200);
+      expect(r.body.toString()).toBe('abs-root-secret');
+    });
   });
 });
 
@@ -612,5 +835,33 @@ describe('createHostHandler — embeddable, mountable, one port (issue #14)', ()
     } finally {
       await host.close();
     }
+  });
+
+  it('rejects cross-origin requests unless the embedder allows the origin (issue #17)', async () => {
+    const listen = async (lavs: LAVSHostHandler): Promise<number> => {
+      embedServer = http.createServer((req, res) => {
+        if ((req.url || '/').startsWith('/lavs')) return lavs.handler(req, res);
+        res.writeHead(404); res.end();
+      });
+      await new Promise<void>((r) => embedServer!.listen(0, '127.0.0.1', () => r()));
+      return (embedServer!.address() as any).port;
+    };
+    const closeEmbed = async (): Promise<void> => {
+      embedServer!.closeAllConnections();
+      await new Promise<void>((r) => embedServer!.close(() => r()));
+      embedServer = undefined;
+    };
+
+    const closed = await createHostHandler({ registryDirs: [tmpDir], prefix: '/lavs' });
+    const closedPort = await listen(closed);
+    const blocked = await raw(closedPort, 'GET', '/lavs/api/discover', { Origin: 'http://evil.example' });
+    expect(blocked.status).toBe(403);
+    await closeEmbed();
+
+    const open = await createHostHandler({ registryDirs: [tmpDir], prefix: '/lavs', allowOrigins: ['http://evil.example'] });
+    const openPort = await listen(open);
+    const allowed = await raw(openPort, 'GET', '/lavs/api/discover', { Origin: 'http://evil.example' });
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers['access-control-allow-origin']).toBe('http://evil.example');
   });
 });
