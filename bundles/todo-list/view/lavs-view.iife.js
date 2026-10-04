@@ -40,6 +40,11 @@ var LAVSView = (() => {
     handlers.refresh();
     return "refresh";
   }
+  function randomToken() {
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
   var LAVSView = class {
     constructor(win = window, parent = window.parent, options = {}) {
       this.win = win;
@@ -50,7 +55,6 @@ var LAVSView = (() => {
       this.onAction = options.onAction;
       this.listen();
     }
-    callId = 0;
     pending = /* @__PURE__ */ new Map();
     commands = {};
     refreshFn;
@@ -59,6 +63,8 @@ var LAVSView = (() => {
     listen() {
       if (!this.parent) return;
       this.listener = (e) => {
+        if (e.origin !== this.win.location.origin) return;
+        if (e.source !== this.parent) return;
         const d = e.data;
         if (!d || typeof d !== "object") return;
         if (d.type === "lavs-result" && this.pending.has(d.id)) {
@@ -94,9 +100,9 @@ var LAVSView = (() => {
           reject(new Error("LAVSView: no parent host (not running inside the LAVS host iframe?)"));
           return;
         }
-        const id = String(++this.callId);
+        const id = randomToken();
         this.pending.set(id, { resolve, reject });
-        this.parent.postMessage({ type: "lavs-call", id, endpoint, input }, "*");
+        this.parent.postMessage({ type: "lavs-call", id, endpoint, input }, this.win.location.origin);
       });
     }
     /** Stop listening (cleanup in SPA hosts). */

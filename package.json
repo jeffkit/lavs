@@ -13,7 +13,7 @@
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish",
     "build:view": "cd sdk/typescript/view && pnpm build",
-    "sync:view": "cp sdk/typescript/view/dist/lavs-view.iife.js bundles/todo-list/view/ && cp sdk/typescript/view/dist/lavs-view.iife.js examples/quickstart/demo/view/"
+    "sync:view": "cp sdk/typescript/view/dist/lavs-view.iife.js bundles/todo-list/view/ && cp sdk/typescript/view/dist/lavs-view.iife.js examples/quickstart/demo/view/ && cp sdk/typescript/view/dist/lavs-view.iife.js sdk/python/lavs_runtime/assets/"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8"

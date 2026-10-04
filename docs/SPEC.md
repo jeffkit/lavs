@@ -804,6 +804,17 @@ When view components are loaded in an iframe, communication between the containe
 | Container → View | `lavs-error` | Container returns call error |
 | Container → View | `lavs-agent-action` | AI agent performed an action |
 
+A view-side listener MUST validate the sender before acting on a message: it
+MUST drop any message whose `event.origin` is not `window.location.origin`, and
+MUST drop any message whose `event.source` is not `window.parent`. A dropped
+message MUST NOT resolve, reject, or otherwise mutate any pending state.
+
+A container-side listener instead validates by view registration and MUST NOT
+drop silently: a `lavs-call` whose `event.source` is not a registered view
+window is answered with `lavs-error` (`view not registered yet`) — an
+unanswered call would leave the view's promise pending forever with no visible
+error.
+
 #### 7.4.2 lavs-call (View → Container)
 
 View sends this when calling a LAVS endpoint:
@@ -811,11 +822,15 @@ View sends this when calling a LAVS endpoint:
 ```typescript
 {
   type: 'lavs-call',
-  id: string,          // Unique request ID for correlation
+  id: string,          // Unique request ID for correlation — MUST be unguessable
   endpoint: string,    // Endpoint ID to call
   input?: any          // Input data for the endpoint
 }
 ```
+
+`id` MUST NOT be derived from a predictable sequence (no incrementing counter) —
+it is the only thing binding a reply to its request. The container MUST echo
+the received `id` verbatim in the matching `lavs-result` / `lavs-error`.
 
 #### 7.4.3 lavs-result (Container → View)
 
