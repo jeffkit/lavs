@@ -48,7 +48,7 @@ _PAGE = """<!DOCTYPE html>
   <header><span class="logo">LAVS</span><span class="badge">Host · Python</span></header>
   <div id="main">
     <aside id="bundleList"></aside>
-    <div id="viewContainer"><div class="empty">Select a bundle</div><iframe data-bundle=""></iframe></div>
+    <div id="viewContainer"><div class="empty">Select a bundle</div><iframe data-bundle="" sandbox="allow-scripts allow-same-origin allow-forms"></iframe></div>
   </div>
 
   <!-- Same @lavs/view build the Node host flow relies on: bridge + UI commands + refresh fallback -->
@@ -58,6 +58,10 @@ _PAGE = """<!DOCTYPE html>
     const listEl = document.getElementById('bundleList');
     const container = document.getElementById('viewContainer');
     let activeName = null;
+
+    function escHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
 
     async function api(path, opts) {
       const r = await fetch(path, opts);
@@ -72,7 +76,7 @@ _PAGE = """<!DOCTYPE html>
         const div = document.createElement('div');
         div.className = 'bundle';
         div.dataset.name = b.name;
-        div.innerHTML = `<b>${b.name}</b><span class="ct">${b.contentType}</span>`;
+        div.innerHTML = `<b>${escHtml(b.name)}</b><span class="ct">${escHtml(b.contentType)}</span>`;
         div.onclick = () => openBundle(b);
         listEl.appendChild(div);
       }
@@ -83,10 +87,16 @@ _PAGE = """<!DOCTYPE html>
       activeName = b.name;
       document.querySelectorAll('.bundle').forEach(el =>
         el.classList.toggle('active', el.dataset.name === b.name));
+      for (const [name, f] of frames) {
+        if (name.startsWith('__src__')) continue;
+        f.classList.remove('active');
+      }
       let frame = frames.get(b.name);
       if (!frame) {
         frame = document.createElement('iframe');
         frame.dataset.bundle = b.name;
+        frame.dataset.contentType = b.contentType;
+        frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
         container.appendChild(frame);
         frames.set(b.name, frame);
         // contentWindow is available right after appendChild — register the
@@ -123,16 +133,20 @@ _PAGE = """<!DOCTYPE html>
       }
     });
 
-    // ── SSE: forward agent-actions into the matching iframe ──
+    // ── SSE: forward agent-actions into the iframe whose contentType matches ──
     const es = new EventSource('/api/events');
     es.addEventListener('agent-action', (e) => {
       let payload;
       try { payload = JSON.parse(e.data); } catch { return; }
       const ct = payload.action && payload.action.contentType;
+      if (!ct) return;
+      let target = null;
       for (const [name, f] of frames) {
         if (name.startsWith('__src__')) continue;
-        if (f.classList.contains('active')) f.contentWindow.postMessage(payload, window.location.origin);
+        if (f.dataset.contentType === ct) { target = f; break; }
       }
+      if (!target) return;
+      target.contentWindow.postMessage(payload, window.location.origin);
     });
 
     loadBundles();
