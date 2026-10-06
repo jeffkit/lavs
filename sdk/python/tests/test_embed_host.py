@@ -159,7 +159,10 @@ class TestLavsHostHandle:
 
     def test_static_root_outside_bundle(self, tmp_path: pathlib.Path):
         make_bundle(tmp_path)
-        host = LavsHost(registry_dirs=[str(tmp_path / "project")])
+        # the `shared` mount is declared with an absolute path: opt in explicitly
+        host = LavsHost(
+            registry_dirs=[str(tmp_path / "project")], allow_absolute_static_roots=True
+        )
 
         status, _, body = host.handle("GET", "/view/demo/shared/note.txt")
         assert status == 200 and read_body(body) == b"shared-note-16"
