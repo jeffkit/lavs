@@ -32,5 +32,10 @@ Host 信任边界默认收紧（issue #17）：
   跨源收紧后该端点已不可被跨源页面读取，但响应体本身尚未去绝对化。
 - `GET /api/registries`（含 POST/DELETE）仍回传绝对目录，host UI 的工作区列表
   依赖它；跨源收紧后仅同源可读。
-- Python `lavs_runtime.host`（`_bundle_info` 回传绝对 `dir`、绝对 staticRoots 默认
-  生效、无 Origin 校验）存在同等缺口，需另行对齐，本变更仅覆盖 TypeScript。
+
+Python host 对齐（issue #28，Python SDK 不走 Changesets，仅在此记录）：
+`lavs_runtime.host` 现在与 TS 同一边界——跨源请求访问 `/api/*`、`/view/*` 默认
+403 且不带 CORS 头（`LavsHost(allow_origins=[...])` 可显式放行），绝对路径
+`view.staticRoots` 默认跳过并打日志（`allow_absolute_static_roots=True` 开启），
+`/api/discover` 的 `dir` / `registryDir` / `staticRoots[].base` 同样相对化。
+上述两处遗留面在 Python host 同样存在。

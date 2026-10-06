@@ -14,6 +14,7 @@ Framework-free: ``LavsHost.handle()`` is a minimal request interface;
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import os
 import queue
@@ -23,10 +24,13 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from lavs_runtime.loader import ManifestLoader
 from lavs_runtime.runner import EndpointRunner
 from lavs_types import LAVSError, LAVSManifest
+
+logger = logging.getLogger(__name__)
 
 _EXTRA_MIME = {
     ".mp4": "video/mp4",
@@ -38,6 +42,47 @@ _EXTRA_MIME = {
 }
 _RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
 _SSE_HEARTBEAT = 15.0
+
+# Hostnames that can only refer to the machine the request already reached.
+_LOOPBACK_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_self_origin(origin: str, host_header: str | None) -> bool:
+    """Whether *origin* refers to this host itself (issue #17 trust boundary).
+
+    Derived from the request's ``Host`` header because the host may be mounted
+    by an embedder on any port. The origin's hostname must also be a loopback
+    name, so a forged Host/Origin pair (DNS rebinding) is not same-origin.
+    """
+    parsed = urlsplit(origin)
+    hostname = parsed.hostname
+    if hostname is None or hostname.lower() not in _LOOPBACK_HOSTNAMES:
+        return False
+    return isinstance(host_header, str) and parsed.netloc.lower() == host_header.lower()
+
+
+def _is_guarded_path(path: str) -> bool:
+    """Paths guarded against cross-origin requests: ``/api/*`` and ``/view/*``."""
+    return bool(re.match(r"^/api(/|$)", path) or re.match(r"^/view(/|$)", path))
+
+
+def _to_discover_payload(info: dict[str, Any]) -> dict[str, Any]:
+    """Strip absolute filesystem paths from a bundle before it crosses HTTP.
+
+    ``dir`` becomes registry-relative, ``registryDir`` a basename grouping
+    label, and static root bases bundle-relative. In-process bundle infos keep
+    their absolute paths (file serving needs them).
+    """
+    registry_dir = info["registryDir"]
+    return {
+        **info,
+        "dir": os.path.relpath(info["dir"], registry_dir),
+        "registryDir": os.path.basename(registry_dir) or "/",
+        "staticRoots": [
+            {"mount": r["mount"], "base": os.path.relpath(r["base"], info["dir"])}
+            for r in info["staticRoots"]
+        ],
+    }
 
 
 class _Subscriber:
@@ -58,12 +103,21 @@ class LavsHost:
         app = host.asgi()                                             # uvicorn mount
     """
 
-    def __init__(self, registry_dirs: list[str] | tuple[str, ...], runner_ttl: float = 2.0) -> None:
+    def __init__(
+        self,
+        registry_dirs: list[str] | tuple[str, ...],
+        runner_ttl: float = 2.0,
+        allow_origins: list[str] | tuple[str, ...] = (),
+        allow_absolute_static_roots: bool = False,
+    ) -> None:
         self._registry_dirs = [str(Path(d).resolve()) for d in registry_dirs]
         self._subs: list[_Subscriber] = []
         self._lock = threading.Lock()
         self._runner_cache: dict[str, tuple[float, EndpointRunner]] = {}
         self._runner_ttl = runner_ttl
+        self._allow_origins = tuple(allow_origins)
+        self._allow_any_origin = "*" in self._allow_origins
+        self._allow_absolute_static_roots = allow_absolute_static_roots
 
     # -- registry management ---------------------------------------------------
 
@@ -106,16 +160,19 @@ class LavsHost:
                 if manifest.name in seen:
                     continue
                 seen.add(manifest.name)
-                bundles.append(self._bundle_info(manifest, str(bundle_dir)))
+                bundles.append(self._bundle_info(manifest, str(bundle_dir), reg))
         return bundles
 
-    def _bundle_info(self, manifest: LAVSManifest, bundle_dir: str) -> dict[str, Any]:
+    def _bundle_info(
+        self, manifest: LAVSManifest, bundle_dir: str, registry_dir: str
+    ) -> dict[str, Any]:
         info: dict[str, Any] = {
             "name": manifest.name,
             "contentType": manifest.content_type or manifest.name,
             "version": manifest.version,
             "description": manifest.description or "",
             "dir": bundle_dir,
+            "registryDir": registry_dir,
             "hasView": False,
             "viewEntry": None,
             "staticRoots": [],
@@ -135,6 +192,14 @@ class LavsHost:
                 info["hasView"] = True
                 info["viewEntry"] = Path(os.path.relpath(p, bundle_dir)).as_posix()
         for r in getattr(view, "static_roots", None) or []:
+            if Path(r.path).is_absolute() and not self._allow_absolute_static_roots:
+                logger.warning(
+                    "[LAVS] staticRoot %r skipped: absolute path %r requires "
+                    "allow_absolute_static_roots",
+                    r.mount,
+                    r.path,
+                )
+                continue
             base = Path(r.path)
             if not base.is_absolute():
                 base = Path(bundle_dir) / base
@@ -216,8 +281,34 @@ class LavsHost:
     # -- routing -----------------------------------------------------------------
 
     def _route(self, method: str, path: str, headers: dict[str, str], body: bytes):
+        # Trust boundary (issue #17): only same-origin and origin-less clients
+        # (curl / CLI / MCP) reach /api/* and /view/* by default. A cross-origin
+        # request is refused outright unless its Origin was allowed explicitly;
+        # the host NEVER answers with a blanket `Access-Control-Allow-Origin: *`.
+        origin = headers.get("origin", "")
+        cross = bool(origin) and not _is_self_origin(origin, headers.get("host"))
+        allowed = cross and (self._allow_any_origin or origin in self._allow_origins)
+
+        if cross and not allowed and _is_guarded_path(path):
+            return 403, {"Content-Type": "text/plain"}, b"Forbidden"
+
+        cors: dict[str, str] = {}
+        if allowed:
+            cors["Access-Control-Allow-Origin"] = "*" if self._allow_any_origin else origin
+            if not self._allow_any_origin:
+                cors["Vary"] = "Origin"
+            cors["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            cors["Access-Control-Allow-Headers"] = "Content-Type"
+
+        if method == "OPTIONS":
+            return 204, cors, b""
+
+        status, resp_headers, resp_body = self._dispatch(method, path, headers, body)
+        return status, {**resp_headers, **cors}, resp_body
+
+    def _dispatch(self, method: str, path: str, headers: dict[str, str], body: bytes):
         if path == "/api/discover":
-            return self._json(200, self._discover())
+            return self._json(200, [_to_discover_payload(b) for b in self._discover()])
 
         if (m := re.fullmatch(r"/api/manifest/([^/]+)", path)):
             info = self._find_bundle(m.group(1))
