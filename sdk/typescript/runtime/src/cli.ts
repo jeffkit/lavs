@@ -57,6 +57,10 @@ interface CLIOptions {
   noOpen: boolean;
   /** view --bare: full-bleed view, no host chrome. */
   bare?: boolean;
+  /** view / host / daemon: extra origins allowed to call the host cross-origin. */
+  allowOrigins: string[];
+  /** view / host / daemon: mount absolute view.staticRoots (default: off). */
+  allowAbsoluteStaticRoots: boolean;
   // daemon
   daemonAction?: DaemonAction;
 }
@@ -88,6 +92,8 @@ function parseArgs(argv: string[]): CLIOptions {
   let port = DEFAULT_HOST_PORT;
   let noOpen = false;
   let bare = false;
+  const allowOrigins: string[] = [];
+  let allowAbsoluteStaticRoots = false;
 
   // For `call` and `view`, the first positional arg after command is optional
   let positionalIndex = 1; // args[positionalIndex] is first positional after command
@@ -125,6 +131,17 @@ function parseArgs(argv: string[]): CLIOptions {
       case '--port':         port        = parseInt(args[++i], 10) || DEFAULT_HOST_PORT; break;
       case '--no-open':      noOpen      = true; break;
       case '--bare':         bare        = true; break;
+      case '--allow-origin': {
+        const value = args[++i];
+        if (!value || !/^(\*|https?:\/\/\S+)$/.test(value)) {
+          console.error(`Invalid --allow-origin value: ${value ?? ''}`);
+          printUsage();
+          process.exit(1);
+        }
+        allowOrigins.push(value);
+        break;
+      }
+      case '--allow-absolute-static-roots': allowAbsoluteStaticRoots = true; break;
       case '--quiet':        process.env.LAVS_QUIET = '1'; break;
       default:
         console.error(`Unknown option: ${args[i]}`);
@@ -165,7 +182,7 @@ function parseArgs(argv: string[]): CLIOptions {
     process.exit(1);
   }
 
-  return { command: cmd, agentDir, agentId, projectPath, registryDirs, endpoint, input, contentType, port, noOpen, bare, daemonAction };
+  return { command: cmd, agentDir, agentId, projectPath, registryDirs, endpoint, input, contentType, port, noOpen, bare, allowOrigins, allowAbsoluteStaticRoots, daemonAction };
 }
 
 function printUsage(): void {
@@ -189,11 +206,15 @@ Options (serve / init / validate):
   --agent-id  <id>         Agent ID (default: directory name)
   --project-path <path>    Data isolation path (serve only)
 
-Options (discover / view):
+Options (discover / view / host / daemon):
   --registry-dir <path>    Directory to scan for bundles (default: cwd)
   --port <n>               Host server port (default: ${DEFAULT_HOST_PORT})
   --no-open                Don't auto-open browser (view only)
   --bare                   Hide host chrome; full-bleed view (view only)
+  --allow-origin <origin>  Allow cross-origin /api/* + /view/* access (repeatable;
+                           e.g. http://localhost:3000, or '*' for any origin)
+  --allow-absolute-static-roots
+                           Mount absolute view.staticRoots (default: skipped)
 
 Options (call):
   --agent-dir <path>       Agent directory with lavs.json (default: cwd)
@@ -215,6 +236,9 @@ Examples:
 
   # List available bundles
   lavs-runtime discover --registry-dir ./agents
+
+  # Let a web app on another origin call the host API
+  lavs-runtime view --registry-dir ./agents --allow-origin http://localhost:3000
 
   # Start MCP server (for MCP-compatible clients)
   lavs-runtime serve --agent-dir ./agents/jarvis
@@ -343,7 +367,9 @@ async function runValidate(options: CLIOptions): Promise<void> {
 async function runDiscover(options: CLIOptions): Promise<void> {
   console.error(`[LAVS] Scanning ${options.registryDirs.join(', ')}`);
 
-  const bundles = await discoverBundlesFromDirs(options.registryDirs);
+  const bundles = await discoverBundlesFromDirs(options.registryDirs, {
+    allowAbsoluteStaticRoots: options.allowAbsoluteStaticRoots,
+  });
 
   if (!bundles.length) {
     console.error('[LAVS] No LAVS bundles found.');
@@ -405,19 +431,19 @@ async function runCall(options: CLIOptions): Promise<void> {
 // ── view ───────────────────────────────────────────────────────────────────
 
 async function runView(options: CLIOptions): Promise<void> {
-  const { registryDirs, port, noOpen, contentType, bare } = options;
+  const { registryDirs, port, noOpen, contentType, bare, allowOrigins, allowAbsoluteStaticRoots } = options;
 
   console.error(`[LAVS] Starting host server on port ${port}${bare ? ' (bare)' : ''}...`);
   console.error(`[LAVS] Registries: ${registryDirs.join(', ')}`);
 
-  const bundles = await discoverBundlesFromDirs(registryDirs);
+  const bundles = await discoverBundlesFromDirs(registryDirs, { allowAbsoluteStaticRoots });
   if (!bundles.length) {
     console.error('[LAVS] No LAVS bundles found.');
     console.error(`  Run \`lavs-runtime init --agent-dir ${registryDirs[0]}/my-bundle\` to create one.`);
     process.exit(1);
   }
 
-  const host = await createHostServer({ registryDirs, port, bare, bareBundle: contentType ?? null });
+  const host = await createHostServer({ registryDirs, port, bare, bareBundle: contentType ?? null, allowOrigins, allowAbsoluteStaticRoots });
 
   const hash = contentType ? `#${encodeURIComponent(contentType)}` : '';
   const url = `http://localhost:${port}/${hash}`;
@@ -443,15 +469,15 @@ async function runView(options: CLIOptions): Promise<void> {
  * `lavs call` invocations notify it automatically.
  */
 async function runHost(options: CLIOptions): Promise<void> {
-  const { registryDirs, port, noOpen } = options;
+  const { registryDirs, port, noOpen, allowOrigins, allowAbsoluteStaticRoots } = options;
 
   console.error(`[LAVS] ✦ Global LAVS Host — port ${port}`);
   console.error(`[LAVS] Registries:`);
   for (const d of registryDirs) console.error(`  • ${d}`);
 
-  const bundles = await discoverBundlesFromDirs(registryDirs);
+  const bundles = await discoverBundlesFromDirs(registryDirs, { allowAbsoluteStaticRoots });
 
-  const host = await createHostServer({ registryDirs, port });
+  const host = await createHostServer({ registryDirs, port, allowOrigins, allowAbsoluteStaticRoots });
 
   const url = `http://localhost:${port}/`;
   console.error(`\n[LAVS] Host running at ${url}`);
@@ -489,6 +515,7 @@ const DAEMON_PLIST_PATH = `${process.env.HOME}/Library/LaunchAgents/${DAEMON_LAB
  */
 async function runDaemon(options: CLIOptions): Promise<void> {
   const { daemonAction, registryDirs, port } = options;
+  const opts = { allowOrigins: options.allowOrigins, allowAbsoluteStaticRoots: options.allowAbsoluteStaticRoots };
   const platform = process.platform;
 
   if (platform === 'win32') {
@@ -498,28 +525,41 @@ async function runDaemon(options: CLIOptions): Promise<void> {
   }
 
   if (platform === 'darwin') {
-    await runDaemonMac(daemonAction!, registryDirs, port);
+    await runDaemonMac(daemonAction!, registryDirs, port, opts);
   } else {
-    await runDaemonLinux(daemonAction!, registryDirs, port);
+    await runDaemonLinux(daemonAction!, registryDirs, port, opts);
   }
 }
 
 /** Generate the launchd ProgramArguments array for the lavs host command. */
-function buildHostArgs(registryDirs: string[], port: number): string[] {
+function buildHostArgs(
+  registryDirs: string[],
+  port: number,
+  opts: { allowOrigins: string[]; allowAbsoluteStaticRoots: boolean }
+): string[] {
   const cliJs = path.resolve(__filename, '../../dist/cli.js');
   const args: string[] = [process.execPath, cliJs, 'host', '--no-open', '--port', String(port)];
   for (const d of registryDirs) {
     args.push('--registry-dir', d);
   }
+  for (const origin of opts.allowOrigins) {
+    args.push('--allow-origin', origin);
+  }
+  if (opts.allowAbsoluteStaticRoots) args.push('--allow-absolute-static-roots');
   return args;
 }
 
-async function runDaemonMac(action: DaemonAction, registryDirs: string[], port: number): Promise<void> {
+async function runDaemonMac(
+  action: DaemonAction,
+  registryDirs: string[],
+  port: number,
+  opts: { allowOrigins: string[]; allowAbsoluteStaticRoots: boolean }
+): Promise<void> {
   const { execSync } = await import('child_process');
   const plistPath = DAEMON_PLIST_PATH;
 
   if (action === 'install') {
-    const progArgs = buildHostArgs(registryDirs, port);
+    const progArgs = buildHostArgs(registryDirs, port, opts);
     const argXml = progArgs.map((a) => `        <string>${a}</string>`).join('\n');
     const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -595,13 +635,18 @@ ${argXml}
   }
 }
 
-async function runDaemonLinux(action: DaemonAction, registryDirs: string[], port: number): Promise<void> {
+async function runDaemonLinux(
+  action: DaemonAction,
+  registryDirs: string[],
+  port: number,
+  opts: { allowOrigins: string[]; allowAbsoluteStaticRoots: boolean }
+): Promise<void> {
   const { execSync } = await import('child_process');
   const serviceDir = `${process.env.HOME}/.config/systemd/user`;
   const serviceFile = `${serviceDir}/lavs-host.service`;
 
   if (action === 'install') {
-    const progArgs = buildHostArgs(registryDirs, port);
+    const progArgs = buildHostArgs(registryDirs, port, opts);
     const execStart = progArgs.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
     const service = `[Unit]
 Description=LAVS Global Host

@@ -80,7 +80,8 @@ LAVS_HOST_PORT=9000 lavs call addTodo --agent-dir ./bundles/todo-list \
 启动 host 服务器 + 打开浏览器，呈现交互式 view。前台运行，Ctrl+C 退出。
 
 ```bash
-lavs view [contentType] [--registry-dir <path>] [--port <n>] [--no-open]
+lavs view [contentType] [--registry-dir <path>] [--port <n>] [--no-open] \
+  [--allow-origin <origin>]... [--allow-absolute-static-roots]
 ```
 
 ```bash
@@ -103,7 +104,8 @@ lavs view --registry-dir ./bundles --no-open
 MCP server 和 `lavs call` 默认通知到这个 host（7842 端口）。
 
 ```bash
-lavs host [--registry-dir <path>]... [--port <n>]
+lavs host [--registry-dir <path>]... [--port <n>] \
+  [--allow-origin <origin>]... [--allow-absolute-static-roots]
 ```
 
 ```bash
@@ -117,12 +119,34 @@ lavs host --registry-dir ~/work-bundles --registry-dir ~/home-bundles
 把 host 注册为系统后台服务：开机自启、崩溃自动重启。
 
 ```bash
-lavs daemon install   [--registry-dir <path>]... [--port <n>]
+lavs daemon install   [--registry-dir <path>]... [--port <n>] \
+  [--allow-origin <origin>]... [--allow-absolute-static-roots]
 lavs daemon uninstall
 lavs daemon status
 ```
 
 详见 [后台常驻](./daemon)。
+
+## 信任边界（view / host / daemon）
+
+host 默认只服务**同源**请求与**不带 `Origin`** 的客户端（`curl`、`lavs call`、MCP server）。
+跨源请求访问 `/api/*`、`/view/*` 一律返回 403，且响应不带 `Access-Control-Allow-Origin`。
+
+| 选项 | 说明 |
+|---|---|
+| `--allow-origin <origin>` | 允许该 origin 跨源访问 host API（可重复）。值形如 `http://localhost:3000`；写 `*` 表示任意 origin |
+| `--allow-absolute-static-roots` | 挂载 `view.staticRoots` 中的**绝对路径** root（默认跳过并打日志） |
+
+```bash
+# 让跑在 3000 端口的前端调用 host API
+lavs host --registry-dir ./bundles --allow-origin http://localhost:3000
+
+# 挂载 bundle 之外、以绝对路径声明的静态目录
+lavs view --registry-dir ./bundles --allow-absolute-static-roots
+```
+
+`/api/discover` 不返回绝对文件系统路径：`dir` 为相对 registry 目录的路径、
+`registryDir` 为 registry 目录名（分组标签）、`staticRoots[].base` 为相对 bundle 目录的路径。
 
 ## init
 
