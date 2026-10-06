@@ -380,9 +380,11 @@ class LavsHost:
     # -- SSE response -----------------------------------------------------------------
 
     def _sse_response(self):
-        sub = self.subscribe()
-
         def stream() -> Iterator[bytes]:
+            # Subscribe lazily: an iterator that is never started must not hold a slot in
+            # _subs (the ASGI branch streams itself and drops this iterator), and every
+            # consumer then gets exactly one unsubscribe from the finally below.
+            sub = self.subscribe()
             try:
                 yield b"event: connected\ndata: {}\n\n"
                 while not sub.closed:
@@ -457,7 +459,9 @@ class LavsHost:
     def wsgi(self):
         """Return a WSGI application."""
 
-        def app(environ: dict, start_response: Any) -> list[bytes]:  # noqa: ANN001
+        def app(  # noqa: ANN001
+            environ: dict, start_response: Any
+        ) -> Iterator[bytes] | list[bytes]:
             length = int(environ.get("CONTENT_LENGTH") or 0)
             body = environ["wsgi.input"].read(length) if length else b""
             headers = {
@@ -469,9 +473,15 @@ class LavsHost:
             status, resp_headers, resp_body = self.handle(
                 req_method, environ.get("PATH_INFO", "/"), headers, body
             )
-            start_response(f"{status} OK", list(resp_headers.items()))
+            # WSGI forbids hop-by-hop headers ("Connection"); wsgiref asserts on them.
+            start_response(
+                f"{status} OK",
+                [(k, v) for k, v in resp_headers.items() if k.lower() != "connection"],
+            )
             if isinstance(resp_body, bytes):
                 return [resp_body]
+            if resp_headers.get("Content-Type") == "text/event-stream":
+                return resp_body  # infinite stream: returning an iterator is allowed by PEP 3333
             return list(resp_body)
 
         return app
